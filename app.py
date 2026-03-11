@@ -59,9 +59,7 @@ except Exception:
 with st.sidebar:
     _logo_sb = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo_purafor.jpg")
     if os.path.exists(_logo_sb):
-        col_l, col_r = st.columns([1, 2])
-        with col_l:
-            st.image(_logo_sb, use_container_width=True)
+        st.image(_logo_sb, use_container_width=True)
     st.markdown("## 📊 Dashboards PURAFOR")
     st.markdown("---")
 
