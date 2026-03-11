@@ -30,7 +30,8 @@ from openpyxl.chart.series import DataPoint
 # CONFIGURAÇÕES
 # ──────────────────────────────────────────────
 PASTA_XML     = r"Z:\codigos\Fabio\XML"
-PASTA_XML_DEV = "Z:\\codigos\\Fabio\\Devolu\u00e7\u00e3o\\XML"   # XMLs de devolu\u00e7\u00e3o
+_SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
+PASTA_XML_DEV = os.path.join(_SCRIPT_DIR, "Devolução", "XML")  # XMLs de devolução (Streamlit Cloud ok)
 CATALOGO_XLSX   = r"Z:\codigos\Fabio\Produtos Purafor.xlsx"
 
 # Credenciais: lidas de variável de ambiente (Streamlit Cloud) com fallback local
