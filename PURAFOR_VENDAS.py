@@ -643,11 +643,7 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
         pag = 1
         tot_pags = 1
         while pag <= tot_pags:
-            dados, erro = _omie_post('ListarRecebimentos', {
-                    'nPagina':    pag,
-                    'dDtInicial': data_ini,
-                    'dDtFinal':   data_fim,
-                })
+            dados, erro = _omie_post('ListarRecebimentos', {'nPagina': pag})
             if erro:
                 if 'gina' in erro.lower():
                     break
