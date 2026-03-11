@@ -551,11 +551,11 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
         ListarRecebimentos — completar com XMLs locais no main().
     """
     URL         = 'https://app.omie.com.br/api/v1/produtos/recebimentonfe/'
-    _INTERVALO  = 0.30   # segundos mínimos entre chamadas (por slot global)
-    _RETRY_RL   = 310    # espera em rate-limit
-    _MAX_WORKERS = 4     # threads paralelas na fase 2
-    _TTL_LISTA   = 3600  # cache da listagem: 1 hora
-    _TTL_DETALHE = 86400 # cache por chave: 24 horas
+    _INTERVALO   = 0.22   # segundos mínimos entre chamadas (por slot global)
+    _RETRY_RL    = 310    # espera em rate-limit
+    _MAX_WORKERS = 8      # threads paralelas na fase 2
+    _TTL_LISTA   = 3600   # cache da listagem: 1 hora
+    _TTL_DETALHE = 86400  # cache por chave: 24 horas
 
     # ── Helpers de parse ─────────────────────────────────
     def _parse_br(s: str):
@@ -643,7 +643,11 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
         pag = 1
         tot_pags = 1
         while pag <= tot_pags:
-            dados, erro = _omie_post('ListarRecebimentos', {'nPagina': pag})
+            dados, erro = _omie_post('ListarRecebimentos', {
+                    'nPagina':    pag,
+                    'dDtInicial': data_ini,
+                    'dDtFinal':   data_fim,
+                })
             if erro:
                 if 'gina' in erro.lower():
                     break
@@ -2619,21 +2623,29 @@ atualizar();
 # ──────────────────────────────────────────────
 # MAIN
 # ──────────────────────────────────────────────
-def main(saida_html: str | None = None, saida_excel: str | None = None) -> str | None:
+def main(
+    saida_html:  str | None = None,
+    saida_excel: str | None = None,
+    data_ini:    str | None = None,
+    data_fim:    str | None = None,
+) -> str | None:
     """
     Executa coleta + geração do dashboard.
-    - saida_html: caminho do HTML a gerar (usa SAIDA_HTML global se omitido)
+    - saida_html:  caminho do HTML a gerar (usa SAIDA_HTML global se omitido)
     - saida_excel: caminho do Excel (usa SAIDA_EXCEL global se omitido; None = sem Excel)
+    - data_ini / data_fim: período no formato 'DD/MM/AAAA' (usa globals se omitido)
     - Retorna o conteúdo HTML como string (útil para exibir no Streamlit).
     """
     _html_path  = saida_html  or SAIDA_HTML
     _excel_path = saida_excel if saida_excel is not None else SAIDA_EXCEL
+    _data_ini   = data_ini or OMIE_DATA_INI
+    _data_fim   = data_fim or OMIE_DATA_FIM
     print("=" * 55)
     print("  RELATÓRIO DE VENDAS — PURAFOR")
     print("=" * 55)
-    print(f"\nBuscando NF-e na API Omie: {OMIE_DATA_INI} a {OMIE_DATA_FIM}")
+    print(f"\nBuscando NF-e na API Omie: {_data_ini} a {_data_fim}")
 
-    registros = ler_xmls_omie_api(OMIE_DATA_INI, OMIE_DATA_FIM)
+    registros = ler_xmls_omie_api(_data_ini, _data_fim)
     if not registros:
         print("\n[ERRO] Nenhum registro de venda encontrado!")
         return None
@@ -2645,6 +2657,11 @@ def main(saida_html: str | None = None, saida_excel: str | None = None) -> str |
     print(f"  ✔ {df['Cliente'].nunique()} clientes distintos")
     print(f"  ✔ {df['Cód. Produto'].nunique()} produtos distintos")
     print(f"  ✔ Faturamento Líquido Total: R$ {df['Vlr Líquido'].sum():,.2f}")
+
+    # Propaga datas escolhidas para o restante do main
+    global OMIE_DATA_INI, OMIE_DATA_FIM
+    OMIE_DATA_INI = _data_ini
+    OMIE_DATA_FIM = _data_fim
 
     # ── JOIN com catálogo de Família/Marca ──────────────────────────
     print("\nCarregando catálogo de produtos (Omie API)...")
@@ -2722,7 +2739,7 @@ def main(saida_html: str | None = None, saida_excel: str | None = None) -> str |
     # com tpNF=0 que não aparecem no ListarRecebimentos)
     reg_dev_api = []
     try:
-        reg_dev_api = ler_devol_omie_api(OMIE_DATA_INI, OMIE_DATA_FIM)
+        reg_dev_api = ler_devol_omie_api(_data_ini, _data_fim)
         print(f"  ✔ API Omie: {len(reg_dev_api)} itens de devolução")
     except Exception as e:
         print(f"  [AVISO] Falha na API de devoluções: {e}")

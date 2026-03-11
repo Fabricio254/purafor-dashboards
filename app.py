@@ -7,6 +7,8 @@ import sys
 import tempfile
 from datetime import datetime
 
+from datetime import date
+
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -46,6 +48,31 @@ with st.sidebar:
     )
     pagina = opcoes[escolha]
 
+    # ── Período de busca ──────────────────────────────────────────
+    st.markdown("### 📅 Período")
+    _hoje    = date.today()
+    _ini_def = date(_hoje.year, 1, 1)
+
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        data_ini_sel = st.date_input(
+            "Data inicial",
+            value=_ini_def,
+            min_value=date(2020, 1, 1),
+            max_value=_hoje,
+            format="DD/MM/YYYY",
+            key="periodo_ini",
+        )
+    with col_d2:
+        data_fim_sel = st.date_input(
+            "Data final",
+            value=_hoje,
+            min_value=date(2020, 1, 1),
+            max_value=_hoje,
+            format="DD/MM/YYYY",
+            key="periodo_fim",
+        )
+
     st.markdown("---")
     st.caption(f"Última execução: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
@@ -56,10 +83,21 @@ if pagina == "purafor_vendas":
 
     st.title("📊 Dashboard de Vendas — PURAFOR")
 
-    # ── Chave de cache na sessão ──────────────────────────────────
+    # ── Chave de cache na sessão (inclui período p/ invalidar ao mudar datas) ──
     HTML_KEY   = "purafor_html"
     STATUS_KEY = "purafor_status"
     TIME_KEY   = "purafor_time"
+    PERIOD_KEY = "purafor_period"
+
+    # Converte datas para string formato Omie
+    _data_ini_str = data_ini_sel.strftime("%d/%m/%Y")
+    _data_fim_str = data_fim_sel.strftime("%d/%m/%Y")
+    _period_id    = f"{_data_ini_str}_{_data_fim_str}"
+
+    # Invalida cache se o período mudou
+    if st.session_state.get(PERIOD_KEY) != _period_id:
+        st.session_state.pop(HTML_KEY, None)
+        st.session_state.pop(STATUS_KEY, None)
 
     # ── Barra de ação ─────────────────────────────────────────────
     col1, col2 = st.columns([3, 1])
@@ -103,13 +141,16 @@ if pagina == "purafor_vendas":
                 with contextlib.redirect_stdout(log_buf):
                     html_content = pv.main(
                         saida_html=tmp_path,
-                        saida_excel=None,   # sem Excel no cloud
+                        saida_excel=None,          # sem Excel no cloud
+                        data_ini=_data_ini_str,
+                        data_fim=_data_fim_str,
                     )
 
                 if html_content:
-                    st.session_state[HTML_KEY]   = html_content
-                    st.session_state[STATUS_KEY] = "ok"
-                    st.session_state[TIME_KEY]   = datetime.now().strftime(
+                    st.session_state[HTML_KEY]    = html_content
+                    st.session_state[STATUS_KEY]  = "ok"
+                    st.session_state[PERIOD_KEY]  = _period_id
+                    st.session_state[TIME_KEY]    = datetime.now().strftime(
                         "%d/%m/%Y às %H:%M:%S"
                     )
                     log_container.success("✅ Dashboard gerado com sucesso!")
@@ -136,7 +177,10 @@ if pagina == "purafor_vendas":
     # ── Exibe o dashboard HTML ────────────────────────────────────
     if HTML_KEY in st.session_state and st.session_state.get(STATUS_KEY) == "ok":
         with col1:
-            st.caption(f"🕐 Gerado em: {st.session_state.get(TIME_KEY, '')}")
+            st.caption(
+                f"🕐 Gerado em: {st.session_state.get(TIME_KEY, '')}  |  "
+                f"📅 Período: {st.session_state.get(PERIOD_KEY,'').replace('_',' a ')}"
+            )
 
         components.html(
             st.session_state[HTML_KEY],
