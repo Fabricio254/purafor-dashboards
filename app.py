@@ -110,72 +110,79 @@ if pagina == "purafor_vendas":
 
     # ── Executa coleta quando clicado ────────────────────────────
     if btn_atualizar or HTML_KEY not in st.session_state:
-        with st.spinner("⏳ Coletando dados da API Omie e gerando dashboard..."):
-            log_container = st.empty()
+        _prog_bar    = st.progress(0, text="⏳ Iniciando...")
+        _prog_status = st.empty()
+        log_container = st.empty()
 
-            # Redireciona print() para o Streamlit
-            import io, contextlib
-            log_buf = io.StringIO()
+        # Redireciona print() para o Streamlit
+        import io, contextlib
+        log_buf = io.StringIO()
 
-            # Importa o módulo (re-importa se necessário para pegar env vars)
-            _base = os.path.dirname(os.path.abspath(__file__))
-            if _base not in sys.path:
-                sys.path.insert(0, _base)
+        # Importa o módulo (re-importa se necessário para pegar env vars)
+        _base = os.path.dirname(os.path.abspath(__file__))
+        if _base not in sys.path:
+            sys.path.insert(0, _base)
 
-            import importlib
-            if "PURAFOR_VENDAS" in sys.modules:
-                pv = sys.modules["PURAFOR_VENDAS"]
-                # Atualiza credenciais se mudaram
-                pv.OMIE_APP_KEY    = os.getenv("OMIE_APP_KEY",    pv.OMIE_APP_KEY)
-                pv.OMIE_APP_SECRET = os.getenv("OMIE_APP_SECRET", pv.OMIE_APP_SECRET)
+        import importlib
+        if "PURAFOR_VENDAS" in sys.modules:
+            pv = sys.modules["PURAFOR_VENDAS"]
+            pv.OMIE_APP_KEY    = os.getenv("OMIE_APP_KEY",    pv.OMIE_APP_KEY)
+            pv.OMIE_APP_SECRET = os.getenv("OMIE_APP_SECRET", pv.OMIE_APP_SECRET)
+        else:
+            import PURAFOR_VENDAS as pv
+
+        # Injeta callback de progresso
+        def _cb(pct: float, msg: str):
+            _prog_bar.progress(pct, text=f"⏳ {msg}")
+            _prog_status.caption(msg)
+        pv._progresso = _cb
+
+        # Gera HTML em arquivo temporário
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False, mode="w", encoding="utf-8"
+        ) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            with contextlib.redirect_stdout(log_buf):
+                html_content = pv.main(
+                    saida_html=tmp_path,
+                    saida_excel=None,          # sem Excel no cloud
+                    data_ini=_data_ini_str,
+                    data_fim=_data_fim_str,
+                )
+
+            if html_content:
+                st.session_state[HTML_KEY]    = html_content
+                st.session_state[STATUS_KEY]  = "ok"
+                st.session_state[PERIOD_KEY]  = _period_id
+                st.session_state[TIME_KEY]    = datetime.now().strftime(
+                    "%d/%m/%Y às %H:%M:%S"
+                )
+                log_container.success("✅ Dashboard gerado com sucesso!")
             else:
-                import PURAFOR_VENDAS as pv
-
-            # Gera HTML em arquivo temporário
-            with tempfile.NamedTemporaryFile(
-                suffix=".html", delete=False, mode="w", encoding="utf-8"
-            ) as tmp:
-                tmp_path = tmp.name
-
-            try:
-                with contextlib.redirect_stdout(log_buf):
-                    html_content = pv.main(
-                        saida_html=tmp_path,
-                        saida_excel=None,          # sem Excel no cloud
-                        data_ini=_data_ini_str,
-                        data_fim=_data_fim_str,
-                    )
-
-                if html_content:
-                    st.session_state[HTML_KEY]    = html_content
-                    st.session_state[STATUS_KEY]  = "ok"
-                    st.session_state[PERIOD_KEY]  = _period_id
-                    st.session_state[TIME_KEY]    = datetime.now().strftime(
-                        "%d/%m/%Y às %H:%M:%S"
-                    )
-                    log_container.success("✅ Dashboard gerado com sucesso!")
-                else:
-                    st.session_state[STATUS_KEY] = "erro"
-                    log_container.error(
-                        "❌ Nenhum dado encontrado. Verifique as credenciais e o período."
-                    )
-            except Exception as exc:
-                import traceback
                 st.session_state[STATUS_KEY] = "erro"
-                log_container.error(f"❌ Erro ao gerar dashboard: {exc}")
-                with st.expander("🔍 Traceback completo", expanded=True):
-                    st.code(traceback.format_exc(), language=None)
-            finally:
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
+                log_container.error(
+                    "❌ Nenhum dado encontrado. Verifique as credenciais e o período."
+                )
+        except Exception as exc:
+            import traceback
+            st.session_state[STATUS_KEY] = "erro"
+            log_container.error(f"❌ Erro ao gerar dashboard: {exc}")
+            with st.expander("🔍 Traceback completo", expanded=True):
+                st.code(traceback.format_exc(), language=None)
+        finally:
+            pv._progresso = None
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
-            # Mostra log do console em expander
-            log_txt = log_buf.getvalue()
-            if log_txt.strip():
-                with st.expander("📋 Log de execução", expanded=False):
-                    st.code(log_txt, language=None)
+        # Mostra log do console em expander
+        log_txt = log_buf.getvalue()
+        if log_txt.strip():
+            with st.expander("📋 Log de execução", expanded=False):
+                st.code(log_txt, language=None)
 
     # ── Exibe o dashboard HTML ────────────────────────────────────
     if HTML_KEY in st.session_state and st.session_state.get(STATUS_KEY) == "ok":

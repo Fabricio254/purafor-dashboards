@@ -51,6 +51,18 @@ SAIDA_HTML    = os.path.join(_BASE_SAIDA, f"Dashboard_PURAFOR_{_agora}.html")
 
 NS = "http://www.portalfiscal.inf.br/nfe"
 
+# ── Callback de progresso (injetado pelo Streamlit) ────────────────────────────
+# callable(pct: float 0-1, msg: str) ou None
+_progresso = None
+
+def _prog(pct: float, msg: str = ""):
+    """Emite progresso se o callback estiver configurado."""
+    if callable(_progresso):
+        try:
+            _progresso(min(float(pct), 1.0), msg)
+        except Exception:
+            pass
+
 # CFOPs de devolução de venda (entradas no estabelecimento por retorno de mercadoria)
 CFOP_DEVOL = {
     # Devolução de venda estadual
@@ -289,6 +301,9 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
 
     registros = []
     for pag in range(1, tot_pag + 1):
+        # Progresso: vendas ocupa faixa 0.05 → 0.38
+        _prog(0.05 + (pag / max(tot_pag, 1)) * 0.33,
+              f"Vendas: página {pag}/{tot_pag}...")
         try:
             resp = resp0 if pag == 1 else requests.post(URL, json={
                 'call': 'ListarDocumentos',
@@ -379,6 +394,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
         incr_start = d_fim - timedelta(days=_DIAS_INCREMENTAL)
         incr_ini_str = incr_start.strftime(_DT_FMT)
         print(f"  Incremento: buscando {incr_ini_str} → {data_fim} (últimos {_DIAS_INCREMENTAL} dias)")
+        _prog(0.05, f"Buscando incremento: {incr_ini_str} → {data_fim}...")
         novos = ler_xmls_omie_api(incr_ini_str, data_fim)
         # Mantém do cache apenas o que está ANTES da janela incremental
         sobreviventes = [
@@ -389,6 +405,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
         all_records = sobreviventes + novos
     else:
         print(f"  Cache vazio — buscando período completo: {data_ini} → {data_fim}")
+        _prog(0.05, f"Buscando vendas: {data_ini} → {data_fim}...")
         all_records = ler_xmls_omie_api(data_ini, data_fim)
 
     # ── Deduplica por NF+Série+Produto+Data ───────────────────────
@@ -774,6 +791,10 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
                 tot_regs = dados.get('nTotalRegistros', '?')
                 print(f'  Omie RecebimentoNFe: {tot_regs} registros | {tot_pags} páginas')
 
+            # Progresso: listagem devol ocupa 0.50 → 0.58
+            _prog(0.50 + (pag / max(tot_pags, 1)) * 0.08,
+                  f"Devoluções lista: página {pag}/{tot_pags}...")
+
             for rec in dados.get('recebimentos', []):
                 cab = rec.get('cabec', {})
                 if cab.get('cModeloNFe') != '55':
@@ -825,8 +846,11 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
             _counter[0] += 1
             n = _counter[0]
             total = len(para_consultar)
-            if n % 20 == 0 or n == total:
+            if n % 10 == 0 or n == total:
                 print(f'    {n}/{total} consultadas...')
+            # Progresso: fase 2 devol ocupa 0.58 → 0.82
+            _prog(0.58 + (n / max(total, 1)) * 0.24,
+                  f"Devoluções: {n}/{total} NF-e consultadas...")
 
         return det if det else None
 
@@ -2766,6 +2790,7 @@ def main(
     print("  RELATÓRIO DE VENDAS — PURAFOR")
     print("=" * 55)
     print(f"\nBuscando NF-e na API Omie: {_data_ini} a {_data_fim}")
+    _prog(0.02, f"Iniciando coleta: {_data_ini} → {_data_fim}...")
 
     registros = _ler_vendas_com_cache(_data_ini, _data_fim)
     if not registros:
@@ -2781,6 +2806,7 @@ def main(
     print(f"  ✔ Faturamento Líquido Total: R$ {df['Vlr Líquido'].sum():,.2f}")
 
     # ── JOIN com catálogo de Família/Marca ──────────────────────────
+    _prog(0.40, "Carregando catálogo de produtos...")
     print("\nCarregando catálogo de produtos (Omie API)...")
     omie_map = carregar_catalogo_omie()
 
@@ -2851,6 +2877,7 @@ def main(
     else:
         print("\n  (Excel: não gerar, modo cloud)")
 
+    _prog(0.48, "Buscando devoluções...")
     print("\nLendo Devoluções...")
     # Tenta API Omie primeiro; completa com XMLs locais (notas emitidas pela PURAFOR
     # com tpNF=0 que não aparecem no ListarRecebimentos)
@@ -2902,9 +2929,11 @@ def main(
     else:
         print("  [AVISO] Nenhum registro de devolução encontrado.")
 
+    _prog(0.88, "Gerando Dashboard HTML...")
     print("\nGerando Dashboard HTML...")
     gerar_dashboard_html(df, _html_path, df_dev=df_dev, produtos_omie=produto_omie_por_xml)
 
+    _prog(1.0, "Concluído!")
     print("\nPronto!")
 
     # Retorna o conteúdo HTML para uso pelo Streamlit
