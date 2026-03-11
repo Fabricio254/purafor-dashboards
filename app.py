@@ -20,6 +20,25 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ─── Tela de login ────────────────────────────────────────────────
+_SENHA_CORRETA = "zampa254"
+
+if not st.session_state.get("_autenticado"):
+    st.markdown(
+        "<h2 style='text-align:center;margin-top:80px'>🔒 Área Restrita — PURAFOR</h2>",
+        unsafe_allow_html=True,
+    )
+    col_c, col_f, col_r = st.columns([1, 1, 1])
+    with col_f:
+        senha = st.text_input("Senha de acesso", type="password", key="_login_senha")
+        if st.button("Entrar", use_container_width=True, type="primary"):
+            if senha == _SENHA_CORRETA:
+                st.session_state["_autenticado"] = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta.")
+    st.stop()
+
 # ─── Injetar credenciais Omie via st.secrets (Streamlit Cloud) ───
 # Quando rodando localmente sem secrets.toml, usa as variáveis de
 # ambiente já definidas (ou o fallback hardcoded em PURAFOR_VENDAS.py).
