@@ -1524,44 +1524,10 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   .modal-footer{{padding:12px 20px;border-top:1px solid #e2e8f0;font-size:12px;
     color:#718096;display:flex;justify-content:space-between;align-items:center;}}
 
-  /* ── PASSWORD GATE ── */
-  #pg-overlay{{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;
-    justify-content:center;
-    background:linear-gradient(135deg,#1e293b 0%,#2d3748 100%);}}
-  #pg-box{{background:#fff;border-radius:18px;padding:42px 48px;
-    box-shadow:0 12px 60px rgba(0,0,0,.6);text-align:center;width:90%;max-width:380px;}}
-  #pg-box .pg-logo{{height:54px;margin-bottom:18px;border-radius:6px;
-    box-shadow:0 2px 8px rgba(0,0,0,.2);object-fit:contain;}}
-  #pg-box h2{{font-size:20px;font-weight:700;color:#1e293b;margin-bottom:6px;}}
-  #pg-box .pg-sub{{font-size:13px;color:#64748b;margin-bottom:24px;line-height:1.55;}}
-  #pg-inp{{width:100%;padding:13px 16px;border:2px solid #e2e8f0;border-radius:10px;
-    font-size:17px;text-align:center;letter-spacing:4px;outline:none;
-    transition:border-color .2s;font-weight:600;}}
-  #pg-inp:focus{{border-color:#2563eb;}}
-  #pg-inp.err-shake{{border-color:#dc2626;animation:shake .35s ease;}}
-  @keyframes shake{{0%,100%{{transform:translateX(0)}}25%{{transform:translateX(-6px)}}75%{{transform:translateX(6px)}};}}
-  #pg-btn{{width:100%;margin-top:14px;padding:13px;border:none;border-radius:10px;
-    background:#2563eb;color:#fff;font-size:15px;font-weight:700;cursor:pointer;
-    transition:background .2s;letter-spacing:.5px;}}
-  #pg-btn:hover{{background:#1d4ed8;}}
-  #pg-err{{color:#dc2626;font-size:13px;margin-top:11px;min-height:18px;font-weight:600;}}
-  body.pg-locked{{overflow:hidden;}}
 </style>
 </head>
-<body class="pg-locked">
+<body>
 
-<!-- PASSWORD GATE -->
-<div id="pg-overlay">
-  <div id="pg-box">
-    {('<img class="pg-logo" src="data:image/jpeg;base64,' + _logo_b64 + '"/>') if _logo_b64 else ''}
-    <h2>&#128274; Dashboard Protegido</h2>
-    <p class="pg-sub">Insira a senha para acessar<br/>o painel de vendas <strong>PURAFOR</strong></p>
-    <input id="pg-inp" type="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
-      autocomplete="off" onkeydown="if(event.key==='Enter')pgEntrar()"/>
-    <button id="pg-btn" onclick="pgEntrar()">&#128275; Entrar</button>
-    <div id="pg-err"></div>
-  </div>
-</div>
 
 <!-- TOPBAR -->
 <div class="topbar">
@@ -1832,33 +1798,6 @@ const CORES = {jv(cores_graficos)};
 const BRL = v => 'R$\u00a0' + v.toLocaleString('pt-BR',{{minimumFractionDigits:2,maximumFractionDigits:2}});
 const NUM = v => v.toLocaleString('pt-BR');
 
-// ═══════════════════════════════════════════════════
-//  PORTA DE ACESSO
-// ═══════════════════════════════════════════════════
-const _PG = 'a56bad0068934e5895fe65674657cd4efa31b5edc28cc0aa3e938a0ecfc247cd';
-async function pgEntrar() {{
-  const inp = document.getElementById('pg-inp');
-  const err = document.getElementById('pg-err');
-  err.textContent = '';
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(inp.value));
-  const hex = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-  if (hex === _PG) {{
-    const ov = document.getElementById('pg-overlay');
-    ov.style.transition = 'opacity .45s ease';
-    ov.style.opacity = '0';
-    setTimeout(() => {{ ov.remove(); document.body.classList.remove('pg-locked'); }}, 480);
-  }} else {{
-    err.textContent = '\u274c Senha incorreta. Tente novamente.';
-    inp.value = '';
-    inp.classList.add('err-shake');
-    setTimeout(() => inp.classList.remove('err-shake'), 400);
-    inp.focus();
-  }}
-}}
-document.addEventListener('DOMContentLoaded', () => {{
-  const inp = document.getElementById('pg-inp');
-  if (inp) inp.focus();
-}});
 
 Chart.defaults.font.family = "'Segoe UI', Arial, sans-serif";
 Chart.defaults.font.size   = 12;
