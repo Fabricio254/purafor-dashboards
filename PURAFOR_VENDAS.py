@@ -799,9 +799,9 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
         ListarRecebimentos — completar com XMLs locais no main().
     """
     URL         = 'https://app.omie.com.br/api/v1/produtos/recebimentonfe/'
-    _INTERVALO   = 0.22   # segundos mínimos entre chamadas (por slot global)
-    _RETRY_RL    = 310    # espera em rate-limit
-    _MAX_WORKERS = 8      # threads paralelas na fase 2
+    _INTERVALO   = 0.40   # segundos mínimos entre chamadas (por slot global)
+    _RETRY_RL    = 30     # espera em rate-limit antes de re-tentar
+    _MAX_WORKERS = 3      # threads paralelas na fase 2 (mais baixo = menos rate-limit)
     _TTL_LISTA   = 86400  # cache da listagem: 24 horas
     _TTL_DETALHE = 86400  # cache por chave: 24 horas
 
@@ -841,9 +841,9 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
     _rl_lock    = threading.Lock()
     _last_call  = [0.0]
 
-    def _omie_post(call: str, param: dict, tentativas: int = 3):
+    def _omie_post(call: str, param: dict, tentativas: int = 5):
         last_exc = 'tentativas esgotadas'
-        for _ in range(tentativas):
+        for tentativa in range(tentativas):
             # Respeita intervalo global (thread-safe)
             with _rl_lock:
                 wait = _INTERVALO - (time.time() - _last_call[0])
@@ -860,9 +860,13 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
                 d = r.json()
                 if 'faultstring' in d:
                     fs = d['faultstring']
-                    if 'bloqueada' in fs.lower():
-                        print(f'  [AVISO] Rate limit Omie, aguardando {_RETRY_RL}s...')
-                        time.sleep(_RETRY_RL)
+                    fs_low = fs.lower()
+                    # Rate-limit: aguarda e re-tenta (NÃO retorna erro permanente)
+                    if ('bloqueada' in fs_low or 'too many requests' in fs_low
+                            or 'rate' in fs_low or 'many request' in fs_low):
+                        espera = _RETRY_RL * (tentativa + 1)  # backoff progressivo
+                        print(f'  [AVISO] Rate limit Omie, aguardando {espera}s...')
+                        time.sleep(espera)
                         continue
                     return None, fs
                 return d, None
@@ -953,9 +957,14 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
         if det is None:
             det_raw, erro = _omie_post('ConsultarRecebimento', {'cChaveNFe': chave})
             if erro:
-                if 'encontrar' not in erro.lower():
+                erro_low = erro.lower()
+                # Só cacheia como vazio se genuinamente não encontrado;
+                # erros de rede/rate-limit NÃO são cacheados → serão re-tentados.
+                if 'encontrar' in erro_low or 'não encontra' in erro_low or 'nao encontra' in erro_low:
+                    _c_save(cache_key, {})  # NF não existe na base → cache vazio permanente
+                else:
                     print(f'  [AVISO] ConsultarRecebimento: {erro[:70]}')
-                _c_save(cache_key, {})   # cache vazio = não encontrado
+                    # Sem cache → próxima execução tentará novamente
                 det = {}
             else:
                 _c_save(cache_key, det_raw)
@@ -3033,14 +3042,32 @@ def main(
         def enriquecer_dev(row):
             cod = str(row["Cód. Produto"]).strip()
             fam, marc = "", ""
+            # 1º: catálogo Omie (por código normalizado)
             p_omie = omie_map.get(_norm_cod(cod))
             if p_omie:
                 fam  = str(p_omie.get('descricao_familia', '') or '').strip()
                 marc = str(p_omie.get('marca', '') or '').strip()
+            # 2º: planilha Excel fallback
             if not fam or not marc:
                 info = mapa_excel.get(cod, {})
                 fam  = fam  or str(info.get("Familia", "") or "").strip()
                 marc = marc or str(info.get("Marca",   "") or "").strip()
+            # 3º: inferência pelo nome do produto e emitente
+            if not marc:
+                desc_up  = str(row.get("Produto",  "") or "").upper()
+                emit_up  = str(row.get("Emitente", "") or "").upper()
+                if "PURAFOR" in desc_up or "PURA FOR" in desc_up:
+                    marc = "PURAFOR"
+                elif any(k in desc_up for k in ("REATIVA", "REAVITA", "REAVIT")):
+                    marc = "REAVITA"
+            if not fam:
+                desc_up  = str(row.get("Produto",  "") or "").upper()
+                emit_up  = str(row.get("Emitente", "") or "").upper()
+                cod_up   = cod.upper()
+                # Produto terceirizado: prefixo NNT / emitente N10 / código externo
+                if (cod_up.startswith("NNT") or "N10 NATURAL" in emit_up
+                        or "NNT" in emit_up):
+                    fam = "terceirizado"
             row["Família"] = fam  or "SEM CADASTRO"
             row["Marca"]   = marc or "SEM CADASTRO"
             return row
