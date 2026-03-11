@@ -2658,11 +2658,6 @@ def main(
     print(f"  ✔ {df['Cód. Produto'].nunique()} produtos distintos")
     print(f"  ✔ Faturamento Líquido Total: R$ {df['Vlr Líquido'].sum():,.2f}")
 
-    # Propaga datas escolhidas para o restante do main
-    global OMIE_DATA_INI, OMIE_DATA_FIM
-    OMIE_DATA_INI = _data_ini
-    OMIE_DATA_FIM = _data_fim
-
     # ── JOIN com catálogo de Família/Marca ──────────────────────────
     print("\nCarregando catálogo de produtos (Omie API)...")
     omie_map = carregar_catalogo_omie()
