@@ -438,8 +438,9 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     )
     if _need_full:
         if all_cached:
+            _e_str = cache_earliest.strftime(_DT_FMT) if cache_earliest else '?'
             print(f"  Período solicitado ({data_ini}) antes do cache "
-                  f"({cache_earliest.strftime(_DT_FMT)}) — full fetch")
+                  f"({_e_str}) — full fetch")
         else:
             print(f"  Cache vazio — buscando período completo: {data_ini} → {data_fim}")
         _prog(0.05, f"Buscando vendas: {data_ini} → {data_fim}...")
