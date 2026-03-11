@@ -110,20 +110,18 @@ if pagina == "purafor_vendas":
 
     # ── Executa coleta quando clicado ────────────────────────────
     if btn_atualizar or HTML_KEY not in st.session_state:
-        _prog_bar    = st.progress(0, text="⏳ Iniciando...")
-        _prog_status = st.empty()
+        import io, contextlib, threading, queue, traceback as _tb
+
+        _prog_bar     = st.progress(0, text="⏳ Iniciando...")
+        _prog_status  = st.empty()
         log_container = st.empty()
+        log_buf       = io.StringIO()
 
-        # Redireciona print() para o Streamlit
-        import io, contextlib
-        log_buf = io.StringIO()
-
-        # Importa o módulo (re-importa se necessário para pegar env vars)
+        # Importa o módulo
         _base = os.path.dirname(os.path.abspath(__file__))
         if _base not in sys.path:
             sys.path.insert(0, _base)
 
-        import importlib
         if "PURAFOR_VENDAS" in sys.modules:
             pv = sys.modules["PURAFOR_VENDAS"]
             pv.OMIE_APP_KEY    = os.getenv("OMIE_APP_KEY",    pv.OMIE_APP_KEY)
@@ -131,10 +129,12 @@ if pagina == "purafor_vendas":
         else:
             import PURAFOR_VENDAS as pv
 
-        # Injeta callback de progresso
+        # Fila de progresso: itens são (pct, msg) ou (None, exc) p/ erro
+        _q: queue.Queue = queue.Queue()
+
         def _cb(pct: float, msg: str):
-            _prog_bar.progress(pct, text=f"⏳ {msg}")
-            _prog_status.caption(msg)
+            _q.put((float(pct), str(msg)))
+
         pv._progresso = _cb
 
         # Gera HTML em arquivo temporário
@@ -143,40 +143,70 @@ if pagina == "purafor_vendas":
         ) as tmp:
             tmp_path = tmp.name
 
-        try:
-            with contextlib.redirect_stdout(log_buf):
-                html_content = pv.main(
-                    saida_html=tmp_path,
-                    saida_excel=None,          # sem Excel no cloud
-                    data_ini=_data_ini_str,
-                    data_fim=_data_fim_str,
-                )
+        # Resultado da thread: [html_content | None, exc | None]
+        _result: list = [None, None]
 
-            if html_content:
-                st.session_state[HTML_KEY]    = html_content
-                st.session_state[STATUS_KEY]  = "ok"
-                st.session_state[PERIOD_KEY]  = _period_id
-                st.session_state[TIME_KEY]    = datetime.now().strftime(
-                    "%d/%m/%Y às %H:%M:%S"
-                )
-                log_container.success("✅ Dashboard gerado com sucesso!")
-            else:
-                st.session_state[STATUS_KEY] = "erro"
-                log_container.error(
-                    "❌ Nenhum dado encontrado. Verifique as credenciais e o período."
-                )
-        except Exception as exc:
-            import traceback
-            st.session_state[STATUS_KEY] = "erro"
-            log_container.error(f"❌ Erro ao gerar dashboard: {exc}")
-            with st.expander("🔍 Traceback completo", expanded=True):
-                st.code(traceback.format_exc(), language=None)
-        finally:
-            pv._progresso = None
+        def _worker():
             try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+                with contextlib.redirect_stdout(log_buf):
+                    _result[0] = pv.main(
+                        saida_html=tmp_path,
+                        saida_excel=None,
+                        data_ini=_data_ini_str,
+                        data_fim=_data_fim_str,
+                    )
+            except Exception as exc:
+                _result[1] = exc
+            finally:
+                pv._progresso = None
+                _q.put(None)   # sentinela: fim da execução
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
+        # Loop principal: lê a fila e atualiza a UI em tempo real
+        import time as _time
+        while True:
+            try:
+                item = _q.get(timeout=0.15)
+            except queue.Empty:
+                continue
+            if item is None:          # sentinela → thread encerrou
+                break
+            pct, msg = item
+            _prog_bar.progress(min(pct, 1.0), text=f"⏳ {msg}")
+            _prog_status.caption(msg)
+
+        t.join()
+
+        # Processa resultado
+        if _result[1] is not None:
+            st.session_state[STATUS_KEY] = "erro"
+            log_container.error(f"❌ Erro ao gerar dashboard: {_result[1]}")
+            with st.expander("🔍 Traceback completo", expanded=True):
+                st.code(_tb.format_exception(type(_result[1]), _result[1],
+                                              _result[1].__traceback__),
+                        language=None)
+        elif _result[0]:
+            st.session_state[HTML_KEY]   = _result[0]
+            st.session_state[STATUS_KEY] = "ok"
+            st.session_state[PERIOD_KEY] = _period_id
+            st.session_state[TIME_KEY]   = datetime.now().strftime(
+                "%d/%m/%Y às %H:%M:%S"
+            )
+            _prog_bar.progress(1.0, text="✅ Concluído!")
+            _prog_status.empty()
+            log_container.success("✅ Dashboard gerado com sucesso!")
+        else:
+            st.session_state[STATUS_KEY] = "erro"
+            log_container.error(
+                "❌ Nenhum dado encontrado. Verifique as credenciais e o período."
+            )
+
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
         # Mostra log do console em expander
         log_txt = log_buf.getvalue()
