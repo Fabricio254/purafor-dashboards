@@ -5,9 +5,9 @@ Executa via: streamlit run app.py
 import os
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, date, timezone, timedelta
 
-from datetime import date
+_BRT = timezone(timedelta(hours=-3))
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -102,7 +102,7 @@ with st.sidebar:
         )
 
     st.markdown("---")
-    st.caption(f"Última execução: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    st.caption(f"Última execução: {datetime.now(_BRT).strftime('%d/%m/%Y %H:%M')}")
 
 # ═══════════════════════════════════════════════════════════════════
 # PÁGINA: Dashboard de Vendas — PURAFOR
@@ -219,7 +219,7 @@ if pagina == "purafor_vendas":
             st.session_state[HTML_KEY]   = _result[0]
             st.session_state[STATUS_KEY] = "ok"
             st.session_state[PERIOD_KEY] = _period_id
-            st.session_state[TIME_KEY]   = datetime.now().strftime(
+            st.session_state[TIME_KEY]   = datetime.now(_BRT).strftime(
                 "%d/%m/%Y às %H:%M:%S"
             )
             _prog_bar.progress(1.0, text="✅ Concluído!")
