@@ -111,6 +111,7 @@ with st.sidebar:
         )
 
     st.markdown("---")
+    st.caption("🔗 Dados obtidos em tempo real diretamente da API Omie.")
     st.caption(f"Última execução: {datetime.now(_BRT).strftime('%d/%m/%Y %H:%M')}")
 
 # ═══════════════════════════════════════════════════════════════════
