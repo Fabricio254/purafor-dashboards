@@ -1,0 +1,26 @@
+# Outputs locais
+*.xlsx
+Dashboard_PURAFOR_*.html
+Relatorio_Vendas_PURAFOR_*.html
+
+# Cache da API
+_cache_omie/
+
+# Segredos (NUNCA enviar ao GitHub)
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# VSCode
+.vscode/
+
+# Temporários de investigação
+_tmp*.py
+_investiga*.py
+_test_*.py
+test_omie_api.py
+saida.txt
