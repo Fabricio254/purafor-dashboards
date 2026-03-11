@@ -61,6 +61,12 @@ _CACHE_DIR = os.path.join(
 )
 os.makedirs(_CACHE_DIR, exist_ok=True)
 
+# ── Cache em memória (persiste entre reruns do Streamlit via sys.modules) ──────
+# Estrutura: {'data_ini': str, 'data_fim': str, 'records': list, 'saved_at': datetime}
+_MEM_VENDAS: dict | None = None
+# Estrutura: {'data': dict, 'saved_at': datetime}
+_MEM_CATALOGO: dict | None = None
+
 # ── Callback de progresso (injetado pelo Streamlit) ────────────────────────────
 # callable(pct: float 0-1, msg: str) ou None
 _progresso = None
@@ -136,12 +142,23 @@ def carregar_catalogo_omie() -> dict:
     Também indexa variações sem prefixo UN/CX para cobrir diferenças de código entre
     o XML da NF-e e o cadastro do Omie (ex: 'AMORAISO' → 'UNAMORAISO').
     Cache em disco com TTL de 6 horas — na 2ª execução carrega em < 1 s.
+    Cache em memória com TTL de 6 horas: instantâneo enquanto o processo estiver vivo.
     """
+    global _MEM_CATALOGO
+    _TTL_HORAS = 6
+
+    # ── Cache em memória (zero I/O, persiste entre reruns do Streamlit) ──
+    if _MEM_CATALOGO is not None:
+        _age_h = (datetime.now() - _MEM_CATALOGO['saved_at']).total_seconds() / 3600
+        if _age_h < _TTL_HORAS:
+            print(f"  ✔ Catálogo Omie (memória {_age_h:.1f}h atrás): "
+                  f"{len(_MEM_CATALOGO['data'])} chaves")
+            return _MEM_CATALOGO['data']
+
     _cache_dir  = _CACHE_DIR
     _cache_path = os.path.join(_cache_dir, 'catalogo_omie.json')
-    _TTL_HORAS  = 6
 
-    # ── Tenta carregar do cache ───────────────────────────────────
+    # ── Tenta carregar do cache em disco ──────────────────────────────
     try:
         with open(_cache_path, encoding='utf-8') as _f:
             _raw = json.load(_f)
@@ -149,7 +166,8 @@ def carregar_catalogo_omie() -> dict:
         _age_h = (datetime.now() - _saved_at).total_seconds() / 3600
         if _age_h < _TTL_HORAS:
             omie_map = _raw['data']
-            print(f"  ✔ Catálogo Omie (cache {_age_h:.1f}h atrás): {len(omie_map)} chaves")
+            print(f"  ✔ Catálogo Omie (disco {_age_h:.1f}h atrás): {len(omie_map)} chaves")
+            _MEM_CATALOGO = {'data': omie_map, 'saved_at': datetime.now()}
             return omie_map
     except Exception:
         pass
@@ -198,7 +216,10 @@ def carregar_catalogo_omie() -> dict:
 
     print(f"  ✔ Omie: {total} produtos baixados ({len(omie_map)} chaves de busca)")
 
-    # ── Persiste cache ────────────────────────────────────────────
+    # ── Salva em memória ────────────────────────────────────────────
+    _MEM_CATALOGO = {'data': omie_map, 'saved_at': datetime.now()}
+
+    # ── Persiste cache em disco ─────────────────────────────────────────
     try:
         with open(_cache_path, 'w', encoding='utf-8') as _f:
             json.dump({'saved_at': datetime.now().isoformat(), 'data': omie_map},
@@ -384,15 +405,28 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     - 1ª execução: baixa tudo e salva em _cache_omie/vendas_full.json
     - Execuções seguintes: carrega cache + rebusca apenas últimos
       _DIAS_INCREMENTAL dias para pegar NFs novas/alteradas.
+    - Cache em memória: se mesmo período e < 30 min, retorna instantâneo.
     - Filtra resultado pelo período solicitado.
     """
+    global _MEM_VENDAS
     from datetime import timedelta
-
-    _cache_dir = _CACHE_DIR
-    _cache_path = os.path.join(_cache_dir, 'vendas_full.json')
 
     _DT_FMT = '%d/%m/%Y'
     _ISO_FMT = '%Y-%m-%dT%H:%M:%S'
+    _MEM_TTL_MIN = 30   # minutos antes de rebuscar incremento
+
+    # ── Cache em memória: mesmo período e recente? ────────────────────────
+    if (
+        _MEM_VENDAS is not None
+        and _MEM_VENDAS.get('data_ini') == data_ini
+        and _MEM_VENDAS.get('data_fim') == data_fim
+    ):
+        _age_min = (datetime.now() - _MEM_VENDAS['saved_at']).total_seconds() / 60
+        if _age_min < _MEM_TTL_MIN:
+            print(f"  ✔ Vendas (memória, {_age_min:.1f} min): "
+                  f"{len(_MEM_VENDAS['records'])} registros")
+            _prog(0.38, "Vendas carregadas do cache em memória")
+            return _MEM_VENDAS['records']
 
     def _to_str(r: dict) -> dict:
         rc = dict(r)
@@ -413,7 +447,9 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     d_ini = datetime.strptime(data_ini, _DT_FMT)
     d_fim = datetime.strptime(data_fim, _DT_FMT)
 
-    # ── Carrega cache ──────────────────────────────────────────────
+    _cache_dir  = _CACHE_DIR
+    _cache_path = os.path.join(_cache_dir, 'vendas_full.json')
+
     all_cached: list[dict] = []
     cache_earliest: datetime | None = None
     if os.path.exists(_cache_path):
@@ -509,6 +545,14 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
         if r.get('Data Emissão') is not None
         and d_ini <= r['Data Emissão'] <= d_fim
     ]
+
+    # ── Salva em memória antes de retornar ──────────────────────
+    _MEM_VENDAS = {
+        'data_ini': data_ini,
+        'data_fim': data_fim,
+        'records':  resultado,
+        'saved_at': datetime.now(),
+    }
     return resultado
 
 
