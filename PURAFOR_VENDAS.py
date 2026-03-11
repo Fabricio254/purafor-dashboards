@@ -2623,21 +2623,23 @@ atualizar();
 # ──────────────────────────────────────────────
 # MAIN
 # ──────────────────────────────────────────────
+_EXCEL_DEFAULT = object()  # sentinel — distingue "não fornecido" de None explícito
+
 def main(
     saida_html:  str | None = None,
-    saida_excel: str | None = None,
+    saida_excel = _EXCEL_DEFAULT,
     data_ini:    str | None = None,
     data_fim:    str | None = None,
 ) -> str | None:
     """
     Executa coleta + geração do dashboard.
     - saida_html:  caminho do HTML a gerar (usa SAIDA_HTML global se omitido)
-    - saida_excel: caminho do Excel (usa SAIDA_EXCEL global se omitido; None = sem Excel)
+    - saida_excel: None = pula Excel; não fornecido = usa SAIDA_EXCEL global
     - data_ini / data_fim: período no formato 'DD/MM/AAAA' (usa globals se omitido)
     - Retorna o conteúdo HTML como string (útil para exibir no Streamlit).
     """
-    _html_path  = saida_html  or SAIDA_HTML
-    _excel_path = saida_excel if saida_excel is not None else SAIDA_EXCEL
+    _html_path  = saida_html or SAIDA_HTML
+    _excel_path = SAIDA_EXCEL if saida_excel is _EXCEL_DEFAULT else saida_excel
     _data_ini   = data_ini or OMIE_DATA_INI
     _data_fim   = data_fim or OMIE_DATA_FIM
     print("=" * 55)

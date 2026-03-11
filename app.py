@@ -160,8 +160,11 @@ if pagina == "purafor_vendas":
                         "❌ Nenhum dado encontrado. Verifique as credenciais e o período."
                     )
             except Exception as exc:
+                import traceback
                 st.session_state[STATUS_KEY] = "erro"
                 log_container.error(f"❌ Erro ao gerar dashboard: {exc}")
+                with st.expander("🔍 Traceback completo", expanded=True):
+                    st.code(traceback.format_exc(), language=None)
             finally:
                 try:
                     os.unlink(tmp_path)
