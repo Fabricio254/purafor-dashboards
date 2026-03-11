@@ -51,6 +51,16 @@ SAIDA_HTML    = os.path.join(_BASE_SAIDA, f"Dashboard_PURAFOR_{_agora}.html")
 
 NS = "http://www.portalfiscal.inf.br/nfe"
 
+# ── Diretório de cache em disco ───────────────────────────────────────────────
+# No Streamlit Cloud o repositório é read-only; usa /tmp que é sempre gravável.
+# Localmente (Windows) usa a pasta do próprio script.
+import tempfile as _tempfile
+_CACHE_DIR = os.path.join(
+    _tempfile.gettempdir() if os.name != 'nt' else os.path.dirname(os.path.abspath(__file__)),
+    '_cache_omie'
+)
+os.makedirs(_CACHE_DIR, exist_ok=True)
+
 # ── Callback de progresso (injetado pelo Streamlit) ────────────────────────────
 # callable(pct: float 0-1, msg: str) ou None
 _progresso = None
@@ -127,8 +137,7 @@ def carregar_catalogo_omie() -> dict:
     o XML da NF-e e o cadastro do Omie (ex: 'AMORAISO' → 'UNAMORAISO').
     Cache em disco com TTL de 6 horas — na 2ª execução carrega em < 1 s.
     """
-    _cache_dir  = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_cache_omie')
-    os.makedirs(_cache_dir, exist_ok=True)
+    _cache_dir  = _CACHE_DIR
     _cache_path = os.path.join(_cache_dir, 'catalogo_omie.json')
     _TTL_HORAS  = 6
 
@@ -379,8 +388,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     """
     from datetime import timedelta
 
-    _cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_cache_omie')
-    os.makedirs(_cache_dir, exist_ok=True)
+    _cache_dir = _CACHE_DIR
     _cache_path = os.path.join(_cache_dir, 'vendas_full.json')
 
     _DT_FMT = '%d/%m/%Y'
@@ -749,8 +757,7 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
             return None
 
     # ── Cache em disco ─────────────────────────────────
-    _cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_cache_omie')
-    os.makedirs(_cache_dir, exist_ok=True)
+    _cache_dir = _CACHE_DIR
 
     def _c_path(key: str) -> str:
         return os.path.join(_cache_dir, hashlib.md5(key.encode()).hexdigest() + '.json')
