@@ -65,18 +65,25 @@ with st.sidebar:
     st.markdown("## 📊 Dashboards PURAFOR")
     st.markdown("---")
 
-    opcoes = {
-        "📊 Dashboard de Vendas — PURAFOR": "purafor_vendas",
-        # Adicione futuros dashboards aqui:
-        # "📦 Estoque — PURAFOR": "purafor_estoque",
+    # ── Seção: Vendas ──────────────────────────────────────────
+    st.markdown("##### 🛒 Vendas")
+    opcoes_vendas = {
+        "📊 Dashboard de Vendas por Canais": "purafor_vendas",
+        # Adicione futuros dashboards de vendas aqui
     }
+
+    # ── Seção: (outras seções futuras) ────────────────────────────
+    # st.markdown("##### 📦 Estoque")
+    # opcoes_estoque = { ... }
+
+    todas_opcoes = {**opcoes_vendas}
 
     escolha = st.radio(
         "Selecione o dashboard:",
-        list(opcoes.keys()),
+        list(todas_opcoes.keys()),
         label_visibility="collapsed",
     )
-    pagina = opcoes[escolha]
+    pagina = todas_opcoes[escolha]
 
     # ── Período de busca ──────────────────────────────────────────
     st.markdown("### 📅 Período")
@@ -107,11 +114,11 @@ with st.sidebar:
     st.caption(f"Última execução: {datetime.now(_BRT).strftime('%d/%m/%Y %H:%M')}")
 
 # ═══════════════════════════════════════════════════════════════════
-# PÁGINA: Dashboard de Vendas — PURAFOR
+# PÁGINA: Dashboard de Vendas por Canais
 # ═══════════════════════════════════════════════════════════════════
 if pagina == "purafor_vendas":
 
-    st.title("📊 Dashboard de Vendas — PURAFOR")
+    st.title("📊 Dashboard de Vendas por Canais — PURAFOR")
 
     # ── Chave de cache na sessão (inclui período p/ invalidar ao mudar datas) ──
     HTML_KEY   = "purafor_html"
