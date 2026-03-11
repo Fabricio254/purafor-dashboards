@@ -30,8 +30,6 @@ from openpyxl.chart.series import DataPoint
 # CONFIGURAÇÕES
 # ──────────────────────────────────────────────
 PASTA_XML     = r"Z:\codigos\Fabio\XML"
-_SCRIPT_DIR   = os.path.dirname(os.path.abspath(__file__))
-PASTA_XML_DEV = os.path.join(_SCRIPT_DIR, "Devolução", "XML")  # XMLs de devolução (Streamlit Cloud ok)
 CATALOGO_XLSX   = r"Z:\codigos\Fabio\Produtos Purafor.xlsx"
 
 # Credenciais: lidas de variável de ambiente (Streamlit Cloud) com fallback local
@@ -79,17 +77,6 @@ def _prog(pct: float, msg: str = ""):
             _progresso(min(float(pct), 1.0), msg)
         except Exception:
             pass
-
-# CFOPs de devolução de venda (entradas no estabelecimento por retorno de mercadoria)
-CFOP_DEVOL = {
-    # Devolução de venda estadual
-    "5201", "5202", "5208", "5209", "5411", "5413",
-    # Devolução de venda interestadual
-    "6201", "6202", "6208", "6209", "6411", "6413",
-    # Entrada por devolução (quando emitente é PURAFOR, tpNF=0)
-    "1201", "1202", "1208", "1209", "1410", "1411",
-    "2201", "2202", "2208", "2209", "2410", "2411",
-}
 
 # CFOPs que representam vendas reais (ignora remessas/brindes c/ valor simbólico)
 CFOP_VENDA = {
@@ -679,381 +666,6 @@ def ler_xmls(pasta: str) -> list[dict]:
     return registros
 
 
-# ──────────────────────────────────────────────
-# LEITURA DOS XMLs DE DEVOLUÇÃO
-# ──────────────────────────────────────────────
-def ler_xmls_devolucao(pasta: str) -> list[dict]:
-    """Lê XMLs de devolução (aceita todos os CFOPs)."""
-    registros = []
-    if not os.path.exists(pasta):
-        print(f"  [AVISO] Pasta de devoluções não encontrada: {pasta}")
-        return registros
-
-    for nome_arquivo in sorted(os.listdir(pasta)):
-        if not nome_arquivo.lower().endswith(".xml"):
-            continue
-        if "procEventoNFe" in nome_arquivo:
-            continue
-
-        caminho = os.path.join(pasta, nome_arquivo)
-        try:
-            tree = ET.parse(caminho)
-            root = tree.getroot()
-
-            nfe = root.find(f"{{{NS}}}NFe")
-            if nfe is None:
-                nfe = root
-
-            infnfe = nfe.find(f"{{{NS}}}infNFe")
-            if infnfe is None:
-                continue
-
-            ide = infnfe.find(f"{{{NS}}}ide")
-            num_nf = ide.findtext(f"{{{NS}}}nNF", "")
-            serie  = ide.findtext(f"{{{NS}}}serie", "")
-            dh_emi = ide.findtext(f"{{{NS}}}dhEmi", "")
-            try:
-                data_emissao = datetime.fromisoformat(dh_emi[:19])
-            except Exception:
-                data_emissao = None
-
-            dest = infnfe.find(f"{{{NS}}}dest")
-            cliente = dest.findtext(f"{{{NS}}}xNome", "") if dest is not None else ""
-            uf_dest = ""
-            if dest is not None:
-                end_dest = dest.find(f"{{{NS}}}enderDest")
-                if end_dest is not None:
-                    uf_dest = end_dest.findtext(f"{{{NS}}}UF", "")
-
-            emit = infnfe.find(f"{{{NS}}}emit")
-            emitente = emit.findtext(f"{{{NS}}}xNome", "") if emit is not None else ""
-
-            for det in infnfe.findall(f"{{{NS}}}det"):
-                prod = det.find(f"{{{NS}}}prod")
-                if prod is None:
-                    continue
-
-                cfop = prod.findtext(f"{{{NS}}}CFOP", "")
-                cod_prod  = prod.findtext(f"{{{NS}}}cProd", "")
-                desc_prod = prod.findtext(f"{{{NS}}}xProd", "")
-                unidade   = prod.findtext(f"{{{NS}}}uCom", "")
-                try:
-                    qtd = float(prod.findtext(f"{{{NS}}}qCom", "0"))
-                except Exception:
-                    qtd = 0.0
-                try:
-                    v_unit = float(prod.findtext(f"{{{NS}}}vUnCom", "0"))
-                except Exception:
-                    v_unit = 0.0
-                try:
-                    v_bruto = float(prod.findtext(f"{{{NS}}}vProd", "0"))
-                except Exception:
-                    v_bruto = 0.0
-                try:
-                    v_desc = float(prod.findtext(f"{{{NS}}}vDesc", "0"))
-                except Exception:
-                    v_desc = 0.0
-
-                v_liquido = v_bruto - v_desc
-
-                registros.append({
-                    "NF":           num_nf,
-                    "Série":        serie,
-                    "Data Emissão": data_emissao,
-                    "Emitente":     emitente,
-                    "Cliente":      cliente,
-                    "UF Dest.":     uf_dest,
-                    "CFOP":         cfop,
-                    "Cód. Produto": cod_prod,
-                    "Produto":      desc_prod,
-                    "Família":      "",
-                    "Marca":        "",
-                    "Unidade":      unidade,
-                    "Qtd":          qtd,
-                    "Vlr Unitário": v_unit,
-                    "Vlr Bruto":    v_bruto,
-                    "Desconto":     v_desc,
-                    "Vlr Líquido":  v_liquido,
-                })
-
-        except Exception as e:
-            print(f"  [AVISO] Erro ao ler devolução {nome_arquivo}: {e}")
-
-    return registros
-
-
-# ──────────────────────────────────────────────
-# LEITURA DE DEVOLUÇÕES VIA API OMIE
-# ──────────────────────────────────────────────
-def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
-    """
-    Obtém devoluções de venda via Omie API (produtos/recebimentonfe/).
-
-    Otimizações:
-      - Cache em disco (JSON, TTL 1h para listagem / 24h para detalhes)
-        Execuções seguintes na mesma sessão são quase instantâneas.
-      - Fase 2 (ConsultarRecebimento) executada em paralelo com
-        ThreadPoolExecutor, respeitando rate-limit global via Lock.
-
-    Limitações conhecidas:
-      - NF-e emitidas pela própria PURAFOR (tpNF=0) não aparecem no
-        ListarRecebimentos — completar com XMLs locais no main().
-    """
-    URL         = 'https://app.omie.com.br/api/v1/produtos/recebimentonfe/'
-    _INTERVALO   = 0.40   # segundos mínimos entre chamadas (por slot global)
-    _RETRY_RL    = 30     # espera em rate-limit antes de re-tentar
-    _MAX_WORKERS = 3      # threads paralelas na fase 2 (mais baixo = menos rate-limit)
-    _TTL_LISTA   = 86400  # cache da listagem: 24 horas
-    _TTL_DETALHE = 86400  # cache por chave: 24 horas
-
-    # ── Helpers de parse ─────────────────────────────────
-    def _parse_br(s: str):
-        try:
-            return datetime.strptime(s, '%d/%m/%Y')
-        except Exception:
-            return None
-
-    # ── Cache em disco ─────────────────────────────────
-    _cache_dir = _CACHE_DIR
-
-    def _c_path(key: str) -> str:
-        return os.path.join(_cache_dir, hashlib.md5(key.encode()).hexdigest() + '.json')
-
-    def _c_load(key: str, ttl: int):
-        p = _c_path(key)
-        if not os.path.exists(p):
-            return None
-        if time.time() - os.path.getmtime(p) > ttl:
-            return None
-        try:
-            with open(p, encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            return None
-
-    def _c_save(key: str, data) -> None:
-        try:
-            with open(_c_path(key), 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, default=str)
-        except Exception:
-            pass
-
-    # ── Rate-limiter global (compartilhado entre threads) ────────
-    _rl_lock    = threading.Lock()
-    _last_call  = [0.0]
-
-    def _omie_post(call: str, param: dict, tentativas: int = 5):
-        last_exc = 'tentativas esgotadas'
-        for tentativa in range(tentativas):
-            # Respeita intervalo global (thread-safe)
-            with _rl_lock:
-                wait = _INTERVALO - (time.time() - _last_call[0])
-                if wait > 0:
-                    time.sleep(wait)
-                _last_call[0] = time.time()
-            try:
-                r = requests.post(URL, json={
-                    'call': call,
-                    'app_key': OMIE_APP_KEY,
-                    'app_secret': OMIE_APP_SECRET,
-                    'param': [param],
-                }, timeout=60)
-                d = r.json()
-                if 'faultstring' in d:
-                    fs = d['faultstring']
-                    fs_low = fs.lower()
-                    # Rate-limit: aguarda e re-tenta (NÃO retorna erro permanente)
-                    if ('bloqueada' in fs_low or 'too many requests' in fs_low
-                            or 'rate' in fs_low or 'many request' in fs_low):
-                        espera = _RETRY_RL * (tentativa + 1)  # backoff progressivo
-                        print(f'  [AVISO] Rate limit Omie, aguardando {espera}s...')
-                        time.sleep(espera)
-                        continue
-                    return None, fs
-                return d, None
-            except Exception as exc:
-                last_exc = str(exc)
-                time.sleep(2)
-                continue
-        return None, last_exc
-
-    d_ini = _parse_br(data_ini)
-    d_fim = _parse_br(data_fim)
-    if d_ini is None or d_fim is None:
-        print('  [AVISO] Datas inválidas para busca de devoluções Omie.')
-        return []
-
-    # ── FASE 1: ListarRecebimentos (metadados) ─────────────────
-    # Chave sem datas: a API não filtra por data, sempre traz tudo.
-    # Guardamos a listagem completa e filtramos localmente.
-    cache_key_lista = 'lista_all'
-    lista_all = _c_load(cache_key_lista, _TTL_LISTA)
-
-    if lista_all is not None:
-        # Filtra pelo período pedido
-        para_consultar = [
-            it for it in lista_all
-            if _parse_br(it.get('dEmi', '')) is None
-            or d_ini <= _parse_br(it['dEmi']) <= d_fim
-        ]
-        print(f'  Devoluções (fase 1): cache válido — {len(para_consultar)} NF-e no período '
-              f'({len(lista_all)} total no cache)')
-    else:
-        print('  Omie RecebimentoNFe: varrendo páginas...')
-        lista_all = []   # lista COMPLETA (sem filtro de data) — para o cache
-        pag = 1
-        tot_pags = 1
-        while pag <= tot_pags:
-            dados, erro = _omie_post('ListarRecebimentos', {'nPagina': pag})
-            if erro:
-                if 'gina' in erro.lower():
-                    break
-                print(f'  [AVISO] ListarRecebimentos pág {pag}: {erro[:80]}')
-                break
-            if pag == 1:
-                tot_pags = dados.get('nTotalPaginas', 1)
-                tot_regs = dados.get('nTotalRegistros', '?')
-                print(f'  Omie RecebimentoNFe: {tot_regs} registros | {tot_pags} páginas')
-
-            # Progresso: listagem devol ocupa 0.50 → 0.58
-            _prog(0.50 + (pag / max(tot_pags, 1)) * 0.08,
-                  f"Devoluções lista: página {pag}/{tot_pags}...")
-
-            for rec in dados.get('recebimentos', []):
-                cab = rec.get('cabec', {})
-                if cab.get('cModeloNFe') != '55':
-                    continue
-                chave = cab.get('cChaveNFe', '')
-                if chave:
-                    lista_all.append({
-                        'chave': chave,
-                        'nNF':   cab.get('cNumeroNFe', ''),
-                        'dEmi':  cab.get('dEmissaoNFe', ''),
-                        'razao': cab.get('cRazaoSocial', cab.get('cNome', '')),
-                    })
-            pag += 1
-
-        # Salva lista completa no cache (sem filtro de data)
-        _c_save(cache_key_lista, lista_all)
-        # Filtra pelo período para esta execução
-        para_consultar = [
-            it for it in lista_all
-            if _parse_br(it.get('dEmi', '')) is None
-            or d_ini <= _parse_br(it['dEmi']) <= d_fim
-        ]
-        print(f'  Total no cache: {len(lista_all)} | No período: {len(para_consultar)}')
-
-    # ── FASE 2: ConsultarRecebimento em paralelo ───────────────
-    print(f'  Consultando detalhes ({len(para_consultar)} NF-e, {_MAX_WORKERS} threads)...')
-
-    _counter = [0]
-    _c_lock  = threading.Lock()
-
-    def _buscar(item: dict) -> dict | None:
-        """Consulta + filtra uma NF-e; retorna dict de detalhes ou None."""
-        chave     = item['chave']
-        cache_key = f'det_{chave}'
-        det = _c_load(cache_key, _TTL_DETALHE)
-
-        if det is None:
-            det_raw, erro = _omie_post('ConsultarRecebimento', {'cChaveNFe': chave})
-            if erro:
-                erro_low = erro.lower()
-                # Só cacheia como vazio se genuinamente não encontrado;
-                # erros de rede/rate-limit NÃO são cacheados → serão re-tentados.
-                if 'encontrar' in erro_low or 'não encontra' in erro_low or 'nao encontra' in erro_low:
-                    _c_save(cache_key, {})  # NF não existe na base → cache vazio permanente
-                else:
-                    print(f'  [AVISO] ConsultarRecebimento: {erro[:70]}')
-                    # Sem cache → próxima execução tentará novamente
-                det = {}
-            else:
-                _c_save(cache_key, det_raw)
-                det = det_raw
-
-        with _c_lock:
-            _counter[0] += 1
-            n = _counter[0]
-            total = len(para_consultar)
-            if n % 10 == 0 or n == total:
-                print(f'    {n}/{total} consultadas...')
-            # Progresso: fase 2 devol ocupa 0.58 → 0.82
-            _prog(0.58 + (n / max(total, 1)) * 0.24,
-                  f"Devoluções: {n}/{total} NF-e consultadas...")
-
-        return det if det else None
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS) as ex:
-        resultados = list(ex.map(_buscar, para_consultar))
-
-    # ── Extrai registros das devoluções ──────────────────────
-    registros = []
-    for item, det in zip(para_consultar, resultados):
-        if not det:
-            continue
-        info_cad = det.get('infoCadastro', {})
-        if info_cad.get('cCancelada') == 'S':
-            continue
-
-        cab_det  = det.get('cabec', {})
-        natureza = cab_det.get('cNaturezaOperacao', '').lower()
-        itens    = det.get('itensRecebimento', []) or []
-        cfops_it = {
-            it.get('itensCabec', {}).get('cCFOP', '').replace('.', '')
-            for it in itens
-        }
-        if not (('devoluc' in natureza) or bool(cfops_it & CFOP_DEVOL)):
-            continue
-
-        nf    = cab_det.get('cNumeroNFe', item['nNF']).lstrip('0') or item['nNF']
-        serie = cab_det.get('cSerieNFe', '')
-        try:
-            data_emi = datetime.strptime(
-                cab_det.get('dEmissaoNFe', item['dEmi']), '%d/%m/%Y')
-        except Exception:
-            data_emi = None
-        emitente = html_mod.unescape(
-            str(cab_det.get('cRazaoSocial', cab_det.get('cNome', item['razao'])) or '')
-        )
-
-        for it in itens:
-            ic = it.get('itensCabec', {})
-            if ic.get('cIgnorarItem') == 'S':
-                continue
-            cfop      = ic.get('cCFOP', '').replace('.', '')
-            cod_prod  = html_mod.unescape(str(ic.get('cCodigoProduto',   '') or ''))
-            desc_prod = html_mod.unescape(str(ic.get('cDescricaoProduto','') or ''))
-            unidade   = html_mod.unescape(str(ic.get('cUnidadeNfe',      '') or ''))
-            try:    qtd    = float(ic.get('nQtdeNFe',   0) or 0)
-            except: qtd    = 0.0
-            try:    v_unit = float(ic.get('nPrecoUnit', 0) or 0)
-            except: v_unit = 0.0
-            try:    v_bruto= float(ic.get('vTotalItem', 0) or 0)
-            except: v_bruto= 0.0
-            try:    v_desc = float(ic.get('vDesconto',  0) or 0)
-            except: v_desc = 0.0
-
-            registros.append({
-                'NF':           nf,
-                'Série':        serie,
-                'Data Emissão': data_emi,
-                'Emitente':     emitente,
-                'Cliente':      emitente,
-                'UF Dest.':     '',
-                'CFOP':         cfop,
-                'Cód. Produto': cod_prod,
-                'Produto':      desc_prod,
-                'Família':      '',
-                'Marca':        '',
-                'Unidade':      unidade,
-                'Qtd':          qtd,
-                'Vlr Unitário': v_unit,
-                'Vlr Bruto':    v_bruto,
-                'Desconto':     v_desc,
-                'Vlr Líquido':  v_bruto - v_desc,
-            })
-
-    return registros
 
 
 # ──────────────────────────────────────────────
@@ -1633,7 +1245,7 @@ def sheet_dashboard(wb, df: pd.DataFrame, grp_produto: pd.DataFrame):
 # ──────────────────────────────────────────────
 # DASHBOARD HTML
 # ──────────────────────────────────────────────
-def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFrame = None, produtos_omie: dict = None):
+def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: dict = None):
     """Gera um dashboard HTML interativo com filtros de período, família e marca."""
     import json
 
@@ -1671,27 +1283,6 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFr
             "liq":     round(float(r["Vlr Líquido"]), 2),
         })
 
-    # ── Dados de devolução para o JS ───────────────────────────
-    cols_dev = ["NF", "Data Emissão", "Cliente", "Cód. Produto",
-                "Produto", "Família", "Marca", "UF Dest.",
-                "Qtd", "Vlr Bruto", "Desconto", "Vlr Líquido"]
-    raw_dev = []
-    if df_dev is not None and not df_dev.empty:
-        for _, r in df_dev[cols_dev].iterrows():
-            raw_dev.append({
-                "nf":      str(r["NF"]),
-                "data":    r["Data Emissão"].strftime("%Y-%m-%d") if pd.notna(r["Data Emissão"]) else "",
-                "cliente": str(r["Cliente"])[:50],
-                "cod":     str(r["Cód. Produto"]),
-                "produto": str(r["Produto"])[:50],
-                "familia": str(r["Família"]) if r["Família"] else "SEM CADASTRO",
-                "marca":   str(r["Marca"])   if r["Marca"]   else "SEM CADASTRO",
-                "uf":      str(r["UF Dest."]),
-                "qtd":     round(float(r["Qtd"]), 4),
-                "bruto":   round(float(r["Vlr Bruto"]), 2),
-                "desc":    round(float(r["Desconto"]), 2),
-                "liq":     round(float(r["Vlr Líquido"]), 2),
-            })
 
     def jv(v):
         return json.dumps(v, ensure_ascii=False)
@@ -1861,7 +1452,6 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFr
   .canal-kpi-metric .m-label{{font-size:10px;color:#718096;text-transform:uppercase;font-weight:600;margin-bottom:4px;}}
   .canal-kpi-metric .m-value{{font-size:20px;font-weight:800;color:#1e293b;line-height:1;}}
   .canal-kpi-metric .m-value.fat{{font-size:17px;}}
-  .dev-row{{grid-column:span 2;border-top:1px dashed #e2e8f0;padding-top:10px;margin-top:2px;}}
   .canal-kpi-metric .m-value.dev{{font-size:17px;color:#dc2626;}}
   .canal-kpi-share{{margin-top:16px;padding-top:14px;border-top:1px solid #f0f4f8;
     display:flex;align-items:center;gap:10px;}}
@@ -2067,14 +1657,6 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFr
           <div class="m-label">👥 Clientes</div>
           <div class="m-value" id="ck-cli-PURAFOR">—</div>
         </div>
-        <div class="canal-kpi-metric dev-row">
-          <div class="m-label">🔄 Devoluções (Vlr.Líq.)</div>
-          <div class="m-value dev" id="ck-dev-PURAFOR">—</div>
-        </div>
-        <div class="canal-kpi-metric">
-          <div class="m-label">📋 NFs Devolvidas</div>
-          <div class="m-value" id="ck-devnf-PURAFOR">—</div>
-        </div>
       </div>
       <div class="canal-kpi-share">
         <span class="share-label">% do Total</span>
@@ -2105,14 +1687,6 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFr
         <div class="canal-kpi-metric">
           <div class="m-label">👥 Clientes</div>
           <div class="m-value" id="ck-cli-REAVITA">—</div>
-        </div>
-        <div class="canal-kpi-metric dev-row">
-          <div class="m-label">🔄 Devoluções (Vlr.Líq.)</div>
-          <div class="m-value dev" id="ck-dev-REAVITA">—</div>
-        </div>
-        <div class="canal-kpi-metric">
-          <div class="m-label">📋 NFs Devolvidas</div>
-          <div class="m-value" id="ck-devnf-REAVITA">—</div>
         </div>
       </div>
       <div class="canal-kpi-share">
@@ -2146,14 +1720,6 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFr
         <div class="canal-kpi-metric">
           <div class="m-label">👥 Clientes</div>
           <div class="m-value" id="ck-cli-TERCEIRIZADO">—</div>
-        </div>
-        <div class="canal-kpi-metric dev-row">
-          <div class="m-label">🔄 Devoluções (Vlr.Líq.)</div>
-          <div class="m-value dev" id="ck-dev-TERCEIRIZADO">—</div>
-        </div>
-        <div class="canal-kpi-metric">
-          <div class="m-label">📋 NFs Devolvidas</div>
-          <div class="m-value" id="ck-devnf-TERCEIRIZADO">—</div>
         </div>
       </div>
       <div class="canal-kpi-share">
@@ -2258,7 +1824,6 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFr
 //  DADOS BRUTOS (todas as linhas de venda)
 // ═══════════════════════════════════════════════════
 const DADOS     = {jv(raw)};
-const DADOS_DEV = {jv(raw_dev)};
 // Catálogo completo de produtos Omie (indexado pelo código da NF-e)
 // Campos: codigo, descricao, descricao_familia, marca, ean, ncm, unidade,
 //         valor_unitario, peso_bruto, peso_liq, inativo, tipoItem, imagens, etc.
@@ -2626,7 +2191,6 @@ function renderizarModal() {{
     dados.length + ' de ' + _modalDados.length + ' produtos';
 }}
 let dadosFiltrados    = DADOS;
-let dadosDevFiltrados = DADOS_DEV;
 
 function filtrar() {{
   const ini = document.getElementById('fDateIni').value;
@@ -2638,11 +2202,6 @@ function filtrar() {{
     return true;
   }});
 
-  dadosDevFiltrados = DADOS_DEV.filter(r => {{
-    if (ini && r.data < ini) return false;
-    if (fim && r.data > fim) return false;
-    return true;
-  }});
 
   const total = dadosFiltrados.length;
   document.getElementById('filtroInfo').textContent =
@@ -2684,10 +2243,6 @@ function renderCanalKPIs(rows) {{
     const nfs = new Set(rC.map(r=>r.nf)).size;
     const cli = new Set(rC.map(r=>r.cliente)).size;
 
-    // devoluções filtradas pelo mesmo período
-    const devR   = dadosDevFiltrados.filter(r => canalDeRow(r) === canal);
-    const devLiq = devR.reduce((s,r)=>s+r.liq,0);
-    const devNfs = new Set(devR.map(r=>r.nf)).size;
 
     const el = id => document.getElementById(id+'-'+canal);
     el('ck-fat').textContent    = BRL(liq);
@@ -2696,8 +2251,6 @@ function renderCanalKPIs(rows) {{
     el('ck-nfs').textContent    = NUM(nfs);
     el('ck-cli').textContent    = NUM(cli);
     el('ck-share').textContent  = share.toFixed(1) + '%';
-    el('ck-dev').textContent    = devLiq > 0 ? '-' + BRL(devLiq) : 'R$\u00a00,00';
-    el('ck-devnf').textContent  = NUM(devNfs);
 
     const cores = {{PURAFOR:'#2563eb',REAVITA:'#059669',TERCEIRIZADO:'#d97706'}};
     const bar = document.getElementById('ck-bar-'+canal);
@@ -2877,13 +2430,11 @@ function limparFiltros() {{
   document.getElementById('fDateFim').value = '{dt_max_iso}';
   document.getElementById('filtroInfo').textContent = '';
   dadosFiltrados    = DADOS;
-  dadosDevFiltrados = DADOS_DEV;
   atualizar();
 }}
 
 // ── Inicializa ──────────────────────────────────────
 dadosFiltrados    = DADOS;
-dadosDevFiltrados = DADOS_DEV;
 atualizar();
 </script>
 </body>
@@ -2972,8 +2523,6 @@ def main(
         return row
 
     df = df.apply(enriquecer, axis=1)
-    # Mantém mapa Excel acessível para devoluções
-    mapa = mapa_excel
 
     com_familia = (df["Família"] != "SEM CADASTRO").sum()
     print(f"  ✔ {com_familia:,} itens COM Família/Marca ({com_familia/len(df)*100:.1f}%)")
@@ -3007,79 +2556,10 @@ def main(
     else:
         print("\n  (Excel: não gerar, modo cloud)")
 
-    _prog(0.48, "Buscando devoluções...")
-    print("\nLendo Devoluções...")
-    # Tenta API Omie primeiro; completa com XMLs locais (notas emitidas pela PURAFOR
-    # com tpNF=0 que não aparecem no ListarRecebimentos)
-    reg_dev_api = []
-    try:
-        reg_dev_api = ler_devol_omie_api(_data_ini, _data_fim)
-        print(f"  ✔ API Omie: {len(reg_dev_api)} itens de devolução")
-    except Exception as e:
-        print(f"  [AVISO] Falha na API de devoluções: {e}")
-
-    # XMLs locais (fallback / complemento para tpNF=0)
-    reg_dev_local = ler_xmls_devolucao(PASTA_XML_DEV)
-    if reg_dev_local:
-        print(f"  ✔ XMLs locais: {len(reg_dev_local)} itens (complemento tpNF=0)")
-
-    reg_dev = reg_dev_api + reg_dev_local
-    # Remove duplicatas pela chave NF+Série+Produto
-    _vistos = set()
-    reg_dev_dedup = []
-    for r in reg_dev:
-        _k = (r.get('NF',''), r.get('Série',''), r.get('Cód. Produto',''),
-              str(r.get('Data Emissão',''))[:10])
-        if _k not in _vistos:
-            _vistos.add(_k)
-            reg_dev_dedup.append(r)
-    reg_dev = reg_dev_dedup
-
-    df_dev = None
-    if reg_dev:
-        df_dev = pd.DataFrame(reg_dev)
-        df_dev["Data Emissão"] = pd.to_datetime(df_dev["Data Emissão"])
-        print(f"  ✔ {len(reg_dev)} itens de devolução em {df_dev['NF'].nunique()} NFs")
-        # Enriquece devoluções com catálogo (Omie primeiro, Excel fallback)
-        def enriquecer_dev(row):
-            cod = str(row["Cód. Produto"]).strip()
-            fam, marc = "", ""
-            # 1º: catálogo Omie (por código normalizado)
-            p_omie = omie_map.get(_norm_cod(cod))
-            if p_omie:
-                fam  = str(p_omie.get('descricao_familia', '') or '').strip()
-                marc = str(p_omie.get('marca', '') or '').strip()
-            # 2º: planilha Excel fallback
-            if not fam or not marc:
-                info = mapa_excel.get(cod, {})
-                fam  = fam  or str(info.get("Familia", "") or "").strip()
-                marc = marc or str(info.get("Marca",   "") or "").strip()
-            # 3º: inferência pelo nome do produto e emitente
-            if not marc:
-                desc_up  = str(row.get("Produto",  "") or "").upper()
-                emit_up  = str(row.get("Emitente", "") or "").upper()
-                if "PURAFOR" in desc_up or "PURA FOR" in desc_up:
-                    marc = "PURAFOR"
-                elif any(k in desc_up for k in ("REATIVA", "REAVITA", "REAVIT")):
-                    marc = "REAVITA"
-            if not fam:
-                desc_up  = str(row.get("Produto",  "") or "").upper()
-                emit_up  = str(row.get("Emitente", "") or "").upper()
-                cod_up   = cod.upper()
-                # Produto terceirizado: prefixo NNT / emitente N10 / código externo
-                if (cod_up.startswith("NNT") or "N10 NATURAL" in emit_up
-                        or "NNT" in emit_up):
-                    fam = "terceirizado"
-            row["Família"] = fam  or "SEM CADASTRO"
-            row["Marca"]   = marc or "SEM CADASTRO"
-            return row
-        df_dev = df_dev.apply(enriquecer_dev, axis=1)
-    else:
-        print("  [AVISO] Nenhum registro de devolução encontrado.")
 
     _prog(0.88, "Gerando Dashboard HTML...")
     print("\nGerando Dashboard HTML...")
-    gerar_dashboard_html(df, _html_path, df_dev=df_dev, produtos_omie=produto_omie_por_xml)
+    gerar_dashboard_html(df, _html_path, produtos_omie=produto_omie_por_xml)
 
     _prog(1.0, "Concluído!")
     print("\nPronto!")
