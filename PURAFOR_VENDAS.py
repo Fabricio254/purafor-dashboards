@@ -415,18 +415,29 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     _ISO_FMT = '%Y-%m-%dT%H:%M:%S'
     _MEM_TTL_MIN = 30   # minutos antes de rebuscar incremento
 
-    # ── Cache em memória: mesmo período e recente? ────────────────────────
-    if (
-        _MEM_VENDAS is not None
-        and _MEM_VENDAS.get('data_ini') == data_ini
-        and _MEM_VENDAS.get('data_fim') == data_fim
-    ):
+    # ── Cache em memória: período coberto pelo conjunto completo e recente? ──
+    # Guarda TODOS os registros baixados; filtra aqui sem novos downloads.
+    if _MEM_VENDAS is not None:
         _age_min = (datetime.now() - _MEM_VENDAS['saved_at']).total_seconds() / 60
         if _age_min < _MEM_TTL_MIN:
-            print(f"  ✔ Vendas (memória, {_age_min:.1f} min): "
-                  f"{len(_MEM_VENDAS['records'])} registros")
-            _prog(0.38, "Vendas carregadas do cache em memória")
-            return _MEM_VENDAS['records']
+            _mem_ini = _MEM_VENDAS.get('earliest')
+            _mem_fim = _MEM_VENDAS.get('latest')
+            d_ini_req = datetime.strptime(data_ini, _DT_FMT)
+            d_fim_req = datetime.strptime(data_fim, _DT_FMT)
+            if (
+                _mem_ini is not None and _mem_fim is not None
+                and d_ini_req >= _mem_ini
+                and d_fim_req <= _mem_fim
+            ):
+                resultado = [
+                    r for r in _MEM_VENDAS['records_all']
+                    if r.get('Data Emissão') is not None
+                    and d_ini_req <= r['Data Emissão'] <= d_fim_req
+                ]
+                print(f"  ✔ Vendas (memória {_age_min:.1f} min, filtrado): "
+                      f"{len(resultado)} registros")
+                _prog(0.38, "Vendas carregadas do cache em memória")
+                return resultado
 
     def _to_str(r: dict) -> dict:
         rc = dict(r)
@@ -539,20 +550,21 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     except Exception as e:
         print(f"  [AVISO] Não foi possível salvar cache de vendas: {e}")
 
+    # ── Salva em memória o conjunto COMPLETO ─────────────────────
+    _datas_mem = [r['Data Emissão'] for r in dedup if isinstance(r.get('Data Emissão'), datetime)]
+    _MEM_VENDAS = {
+        'records_all': dedup,
+        'earliest':    min(_datas_mem) if _datas_mem else None,
+        'latest':      max(_datas_mem) if _datas_mem else None,
+        'saved_at':    datetime.now(),
+    }
+
     # ── Filtra pelo período solicitado ────────────────────────────
     resultado = [
         r for r in dedup
         if r.get('Data Emissão') is not None
         and d_ini <= r['Data Emissão'] <= d_fim
     ]
-
-    # ── Salva em memória antes de retornar ──────────────────────
-    _MEM_VENDAS = {
-        'data_ini': data_ini,
-        'data_fim': data_fim,
-        'records':  resultado,
-        'saved_at': datetime.now(),
-    }
     return resultado
 
 
