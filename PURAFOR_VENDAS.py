@@ -1699,7 +1699,8 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFr
 
     # ── Logo em base64 (embed no HTML, funciona sem dependência de arquivo) ──
     import base64, os as _os
-    _logo_path = r"Z:\codigos\Fabio\logo_purafor.jpg"
+    _base_dir = _os.path.dirname(_os.path.abspath(__file__))
+    _logo_path = _os.path.join(_base_dir, "logo_purafor.jpg")
     _logo_b64 = ""
     if _os.path.exists(_logo_path):
         with open(_logo_path, "rb") as _f:
@@ -1710,7 +1711,7 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, df_dev: pd.DataFr
                 ) if _logo_b64 else ""
 
     # ── Logo Alfa Soluções em base64 ──
-    _logo_alfa_path = "Z:\\codigos\\Fabio\\Logo Alfa.jpg"
+    _logo_alfa_path = _os.path.join(_base_dir, "Logo Alfa.jpg")
     _logo_alfa_b64 = ""
     if _os.path.exists(_logo_alfa_path):
         with open(_logo_alfa_path, "rb") as _f:
