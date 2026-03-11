@@ -76,7 +76,7 @@ with st.sidebar:
     # ── Período de busca ──────────────────────────────────────────
     st.markdown("### 📅 Período")
     _hoje    = date.today()
-    _ini_def = date(_hoje.year, 1, 1)
+    _ini_def = date(_hoje.year - 1, 1, 1)
 
     col_d1, col_d2 = st.columns(2)
     with col_d1:
