@@ -87,6 +87,7 @@ with st.sidebar:
 
     # ── Período de busca ──────────────────────────────────────────
     st.markdown("### 📅 Período")
+    st.caption("🔗 Dados obtidos em tempo real diretamente da API Omie.")
     _hoje    = date.today()
     _ini_def = date(_hoje.year - 1, 1, 1)
 
@@ -111,7 +112,6 @@ with st.sidebar:
         )
 
     st.markdown("---")
-    st.caption("🔗 Dados obtidos em tempo real diretamente da API Omie.")
     st.caption(f"Última execução: {datetime.now(_BRT).strftime('%d/%m/%Y %H:%M')}")
 
 # ═══════════════════════════════════════════════════════════════════
