@@ -125,7 +125,27 @@ def carregar_catalogo_omie() -> dict:
       valor = dict completo do produto (todos os campos: familia, marca, ean, ncm, etc.)
     Também indexa variações sem prefixo UN/CX para cobrir diferenças de código entre
     o XML da NF-e e o cadastro do Omie (ex: 'AMORAISO' → 'UNAMORAISO').
+    Cache em disco com TTL de 6 horas — na 2ª execução carrega em < 1 s.
     """
+    _cache_dir  = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_cache_omie')
+    os.makedirs(_cache_dir, exist_ok=True)
+    _cache_path = os.path.join(_cache_dir, 'catalogo_omie.json')
+    _TTL_HORAS  = 6
+
+    # ── Tenta carregar do cache ───────────────────────────────────
+    try:
+        with open(_cache_path, encoding='utf-8') as _f:
+            _raw = json.load(_f)
+        _saved_at = datetime.fromisoformat(_raw['saved_at'])
+        _age_h = (datetime.now() - _saved_at).total_seconds() / 3600
+        if _age_h < _TTL_HORAS:
+            omie_map = _raw['data']
+            print(f"  ✔ Catálogo Omie (cache {_age_h:.1f}h atrás): {len(omie_map)} chaves")
+            return omie_map
+    except Exception:
+        pass
+
+    # ── Busca na API ──────────────────────────────────────────────
     URL = 'https://app.omie.com.br/api/v1/geral/produtos/'
     REG_PAG = 50
     try:
@@ -168,6 +188,15 @@ def carregar_catalogo_omie() -> dict:
             print(f"  [AVISO] Erro Omie pág {pag}: {e}")
 
     print(f"  ✔ Omie: {total} produtos baixados ({len(omie_map)} chaves de busca)")
+
+    # ── Persiste cache ────────────────────────────────────────────
+    try:
+        with open(_cache_path, 'w', encoding='utf-8') as _f:
+            json.dump({'saved_at': datetime.now().isoformat(), 'data': omie_map},
+                      _f, ensure_ascii=False)
+    except Exception:
+        pass
+
     return omie_map
 
 
@@ -378,19 +407,44 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
 
     # ── Carrega cache ──────────────────────────────────────────────
     all_cached: list[dict] = []
+    cache_earliest: datetime | None = None
     if os.path.exists(_cache_path):
         try:
             with open(_cache_path, encoding='utf-8') as f:
                 raw = json.load(f)
             all_cached = [_from_str(r) for r in raw.get('records', [])]
-            updated = raw.get('meta', {}).get('updated', '?')
-            print(f"  Cache vendas: {len(all_cached)} registros (salvo {updated[:10]})")
+            meta = raw.get('meta', {})
+            updated = meta.get('updated', '?')
+            _e = meta.get('earliest')
+            if _e:
+                try:
+                    cache_earliest = datetime.fromisoformat(_e[:19])
+                except Exception:
+                    pass
+            print(f"  Cache vendas: {len(all_cached)} registros "
+                  f"(salvo {updated[:10]}, "
+                  f"desde {cache_earliest.strftime(_DT_FMT) if cache_earliest else '?'})")
         except Exception as e:
             print(f"  [AVISO] Cache de vendas corrompido, ignorando: {e}")
             all_cached = []
+            cache_earliest = None
 
     # ── Estratégia: incremental ou full fetch ──────────────────────
-    if all_cached:
+    # Força full fetch se: cache vazio OU período solicitado começa antes do que o cache cobre
+    _need_full = (
+        not all_cached
+        or cache_earliest is None
+        or d_ini < cache_earliest
+    )
+    if _need_full:
+        if all_cached:
+            print(f"  Período solicitado ({data_ini}) antes do cache "
+                  f"({cache_earliest.strftime(_DT_FMT)}) — full fetch")
+        else:
+            print(f"  Cache vazio — buscando período completo: {data_ini} → {data_fim}")
+        _prog(0.05, f"Buscando vendas: {data_ini} → {data_fim}...")
+        all_records = ler_xmls_omie_api(data_ini, data_fim)
+    else:
         incr_start = d_fim - timedelta(days=_DIAS_INCREMENTAL)
         incr_ini_str = incr_start.strftime(_DT_FMT)
         print(f"  Incremento: buscando {incr_ini_str} → {data_fim} (últimos {_DIAS_INCREMENTAL} dias)")
@@ -403,10 +457,6 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
             and r['Data Emissão'] < incr_start
         ]
         all_records = sobreviventes + novos
-    else:
-        print(f"  Cache vazio — buscando período completo: {data_ini} → {data_fim}")
-        _prog(0.05, f"Buscando vendas: {data_ini} → {data_fim}...")
-        all_records = ler_xmls_omie_api(data_ini, data_fim)
 
     # ── Deduplica por NF+Série+Produto+Data ───────────────────────
     seen: set = set()
@@ -424,18 +474,22 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
 
     # ── Persiste cache atualizado ─────────────────────────────────
     try:
+        _datas = [r['Data Emissão'] for r in dedup if isinstance(r.get('Data Emissão'), datetime)]
+        _earliest_iso = min(_datas).isoformat() if _datas else None
         with open(_cache_path, 'w', encoding='utf-8') as f:
             json.dump(
                 {
                     'meta': {
-                        'updated': datetime.now().isoformat(),
-                        'total': len(dedup),
+                        'updated':  datetime.now().isoformat(),
+                        'total':    len(dedup),
+                        'earliest': _earliest_iso,
                     },
                     'records': [_to_str(r) for r in dedup],
                 },
                 f, ensure_ascii=False, default=str,
             )
-        print(f"  Cache vendas atualizado: {len(dedup)} registros totais salvos")
+        print(f"  Cache vendas atualizado: {len(dedup)} registros "
+              f"(desde {_earliest_iso[:10] if _earliest_iso else '?'})")
     except Exception as e:
         print(f"  [AVISO] Não foi possível salvar cache de vendas: {e}")
 
