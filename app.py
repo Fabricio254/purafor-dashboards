@@ -30,8 +30,10 @@ if not st.session_state.get("_autenticado"):
     )
     col_c, col_f, col_r = st.columns([1, 1, 1])
     with col_f:
-        senha = st.text_input("Senha de acesso", type="password", key="_login_senha")
-        if st.button("Entrar", use_container_width=True, type="primary"):
+        with st.form("_login_form"):
+            senha = st.text_input("Senha de acesso", type="password")
+            submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
+        if submitted:
             if senha == _SENHA_CORRETA:
                 st.session_state["_autenticado"] = True
                 st.rerun()
