@@ -24,12 +24,16 @@ st.set_page_config(
 _SENHA_CORRETA = "zampa254"
 
 if not st.session_state.get("_autenticado"):
-    st.markdown(
-        "<h2 style='text-align:center;margin-top:80px'>🔒 Área Restrita — PURAFOR</h2>",
-        unsafe_allow_html=True,
-    )
+    _logo_login = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo_purafor.jpg")
     col_c, col_f, col_r = st.columns([1, 1, 1])
     with col_f:
+        st.markdown("<div style='margin-top:60px'></div>", unsafe_allow_html=True)
+        if os.path.exists(_logo_login):
+            st.image(_logo_login, use_container_width=True)
+        st.markdown(
+            "<h2 style='text-align:center;margin-top:12px'>🔒 Área Restrita — PURAFOR</h2>",
+            unsafe_allow_html=True,
+        )
         with st.form("_login_form"):
             senha = st.text_input("Senha de acesso", type="password")
             submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
