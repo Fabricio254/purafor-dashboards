@@ -430,11 +430,12 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
             cache_earliest = None
 
     # ── Estratégia: incremental ou full fetch ──────────────────────
-    # Força full fetch se: cache vazio OU período solicitado começa antes do que o cache cobre
+    # Força full fetch APENAS se cache vazio OU se conhecemos a data mais antiga
+    # do cache E o período solicitado começa antes dela.
+    # Se cache_earliest é None mas há registros, assume incremental (cache sem metadado antigo).
     _need_full = (
         not all_cached
-        or cache_earliest is None
-        or d_ini < cache_earliest
+        or (cache_earliest is not None and d_ini < cache_earliest)
     )
     if _need_full:
         if all_cached:
