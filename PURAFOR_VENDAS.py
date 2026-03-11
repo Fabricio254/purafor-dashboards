@@ -321,6 +321,117 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
 
 
 # ──────────────────────────────────────────────
+# CACHE INCREMENTAL DE VENDAS
+# ──────────────────────────────────────────────
+_DIAS_INCREMENTAL = 45  # ao usar cache, rebusca sempre os últimos N dias
+
+def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
+    """
+    Wrapper incremental sobre ler_xmls_omie_api:
+    - 1ª execução: baixa tudo e salva em _cache_omie/vendas_full.json
+    - Execuções seguintes: carrega cache + rebusca apenas últimos
+      _DIAS_INCREMENTAL dias para pegar NFs novas/alteradas.
+    - Filtra resultado pelo período solicitado.
+    """
+    from datetime import timedelta
+
+    _cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_cache_omie')
+    os.makedirs(_cache_dir, exist_ok=True)
+    _cache_path = os.path.join(_cache_dir, 'vendas_full.json')
+
+    _DT_FMT = '%d/%m/%Y'
+    _ISO_FMT = '%Y-%m-%dT%H:%M:%S'
+
+    def _to_str(r: dict) -> dict:
+        rc = dict(r)
+        if isinstance(rc.get('Data Emissão'), datetime):
+            rc['Data Emissão'] = rc['Data Emissão'].strftime(_ISO_FMT)
+        return rc
+
+    def _from_str(r: dict) -> dict:
+        rc = dict(r)
+        v = rc.get('Data Emissão')
+        if isinstance(v, str):
+            try:
+                rc['Data Emissão'] = datetime.fromisoformat(v[:19])
+            except Exception:
+                pass
+        return rc
+
+    d_ini = datetime.strptime(data_ini, _DT_FMT)
+    d_fim = datetime.strptime(data_fim, _DT_FMT)
+
+    # ── Carrega cache ──────────────────────────────────────────────
+    all_cached: list[dict] = []
+    if os.path.exists(_cache_path):
+        try:
+            with open(_cache_path, encoding='utf-8') as f:
+                raw = json.load(f)
+            all_cached = [_from_str(r) for r in raw.get('records', [])]
+            updated = raw.get('meta', {}).get('updated', '?')
+            print(f"  Cache vendas: {len(all_cached)} registros (salvo {updated[:10]})")
+        except Exception as e:
+            print(f"  [AVISO] Cache de vendas corrompido, ignorando: {e}")
+            all_cached = []
+
+    # ── Estratégia: incremental ou full fetch ──────────────────────
+    if all_cached:
+        incr_start = d_fim - timedelta(days=_DIAS_INCREMENTAL)
+        incr_ini_str = incr_start.strftime(_DT_FMT)
+        print(f"  Incremento: buscando {incr_ini_str} → {data_fim} (últimos {_DIAS_INCREMENTAL} dias)")
+        novos = ler_xmls_omie_api(incr_ini_str, data_fim)
+        # Mantém do cache apenas o que está ANTES da janela incremental
+        sobreviventes = [
+            r for r in all_cached
+            if r.get('Data Emissão') is not None
+            and r['Data Emissão'] < incr_start
+        ]
+        all_records = sobreviventes + novos
+    else:
+        print(f"  Cache vazio — buscando período completo: {data_ini} → {data_fim}")
+        all_records = ler_xmls_omie_api(data_ini, data_fim)
+
+    # ── Deduplica por NF+Série+Produto+Data ───────────────────────
+    seen: set = set()
+    dedup: list[dict] = []
+    for r in all_records:
+        k = (
+            r.get('NF', ''),
+            r.get('Série', ''),
+            r.get('Cód. Produto', ''),
+            str(r.get('Data Emissão', ''))[:10],
+        )
+        if k not in seen:
+            seen.add(k)
+            dedup.append(r)
+
+    # ── Persiste cache atualizado ─────────────────────────────────
+    try:
+        with open(_cache_path, 'w', encoding='utf-8') as f:
+            json.dump(
+                {
+                    'meta': {
+                        'updated': datetime.now().isoformat(),
+                        'total': len(dedup),
+                    },
+                    'records': [_to_str(r) for r in dedup],
+                },
+                f, ensure_ascii=False, default=str,
+            )
+        print(f"  Cache vendas atualizado: {len(dedup)} registros totais salvos")
+    except Exception as e:
+        print(f"  [AVISO] Não foi possível salvar cache de vendas: {e}")
+
+    # ── Filtra pelo período solicitado ────────────────────────────
+    resultado = [
+        r for r in dedup
+        if r.get('Data Emissão') is not None
+        and d_ini <= r['Data Emissão'] <= d_fim
+    ]
+    return resultado
+
+
+# ──────────────────────────────────────────────
 # LEITURA DOS XMLs (pasta local — mantido como fallback)
 # ──────────────────────────────────────────────
 def ler_xmls(pasta: str) -> list[dict]:
@@ -554,7 +665,7 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
     _INTERVALO   = 0.22   # segundos mínimos entre chamadas (por slot global)
     _RETRY_RL    = 310    # espera em rate-limit
     _MAX_WORKERS = 8      # threads paralelas na fase 2
-    _TTL_LISTA   = 3600   # cache da listagem: 1 hora
+    _TTL_LISTA   = 86400  # cache da listagem: 24 horas
     _TTL_DETALHE = 86400  # cache por chave: 24 horas
 
     # ── Helpers de parse ─────────────────────────────────
@@ -632,14 +743,23 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
         return []
 
     # ── FASE 1: ListarRecebimentos (metadados) ─────────────────
-    cache_key_lista = f'lista_{data_ini}_{data_fim}'
-    para_consultar  = _c_load(cache_key_lista, _TTL_LISTA)
+    # Chave sem datas: a API não filtra por data, sempre traz tudo.
+    # Guardamos a listagem completa e filtramos localmente.
+    cache_key_lista = 'lista_all'
+    lista_all = _c_load(cache_key_lista, _TTL_LISTA)
 
-    if para_consultar is not None:
-        print(f'  Devoluções (fase 1): cache válido — {len(para_consultar)} NF-e no período')
+    if lista_all is not None:
+        # Filtra pelo período pedido
+        para_consultar = [
+            it for it in lista_all
+            if _parse_br(it.get('dEmi', '')) is None
+            or d_ini <= _parse_br(it['dEmi']) <= d_fim
+        ]
+        print(f'  Devoluções (fase 1): cache válido — {len(para_consultar)} NF-e no período '
+              f'({len(lista_all)} total no cache)')
     else:
         print('  Omie RecebimentoNFe: varrendo páginas...')
-        para_consultar = []
+        lista_all = []   # lista COMPLETA (sem filtro de data) — para o cache
         pag = 1
         tot_pags = 1
         while pag <= tot_pags:
@@ -658,12 +778,9 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
                 cab = rec.get('cabec', {})
                 if cab.get('cModeloNFe') != '55':
                     continue
-                data_nf = _parse_br(cab.get('dEmissaoNFe', ''))
-                if data_nf and (data_nf < d_ini or data_nf > d_fim):
-                    continue
                 chave = cab.get('cChaveNFe', '')
                 if chave:
-                    para_consultar.append({
+                    lista_all.append({
                         'chave': chave,
                         'nNF':   cab.get('cNumeroNFe', ''),
                         'dEmi':  cab.get('dEmissaoNFe', ''),
@@ -671,8 +788,15 @@ def ler_devol_omie_api(data_ini: str, data_fim: str) -> list[dict]:
                     })
             pag += 1
 
-        _c_save(cache_key_lista, para_consultar)
-        print(f'  NF-e mod.55 no período: {len(para_consultar)}')
+        # Salva lista completa no cache (sem filtro de data)
+        _c_save(cache_key_lista, lista_all)
+        # Filtra pelo período para esta execução
+        para_consultar = [
+            it for it in lista_all
+            if _parse_br(it.get('dEmi', '')) is None
+            or d_ini <= _parse_br(it['dEmi']) <= d_fim
+        ]
+        print(f'  Total no cache: {len(lista_all)} | No período: {len(para_consultar)}')
 
     # ── FASE 2: ConsultarRecebimento em paralelo ───────────────
     print(f'  Consultando detalhes ({len(para_consultar)} NF-e, {_MAX_WORKERS} threads)...')
@@ -2643,7 +2767,7 @@ def main(
     print("=" * 55)
     print(f"\nBuscando NF-e na API Omie: {_data_ini} a {_data_fim}")
 
-    registros = ler_xmls_omie_api(_data_ini, _data_fim)
+    registros = _ler_vendas_com_cache(_data_ini, _data_fim)
     if not registros:
         print("\n[ERRO] Nenhum registro de venda encontrado!")
         return None
