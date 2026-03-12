@@ -2544,16 +2544,16 @@ atualizar();
 # ──────────────────────────────────────────────
 # MAPA VENDEDOR (Omie: ListarPedidos + ListarVendedores)
 # ──────────────────────────────────────────────
-def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '') -> dict:
+def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
+                           ids_pedido: set | None = None) -> dict:
     """
     Retorna {codigo_pedido (int): nome_vendedor (str)}.
 
-    Estrategia OTIMIZADA (join direto - sem ListarClientes):
-      1. ListarVendedores  -> {codigo_vend -> nome}           (1 pag ~0.5s)
+    Estrategia OTIMIZADA:
+      1. ListarVendedores -> {codigo_vend -> nome}           (1 pag ~0.5s)
       2. ListarPedidos (filtrado por data) -> {codigo_pedido -> nome_vendedor}
-                                                              (~4 pags ~4s)
-      Join via nIdPedido da NF = codigo_pedido do pedido.
-      Elimina completamente ListarClientes (33 pags = ~33s economizados).
+         Para assim que todos os ids_pedido forem encontrados (early-stop).
+      Join via nIdPedido da NF = codigo_pedido do pedido (sem ListarClientes).
     """
     URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
     URL_PED  = 'https://app.omie.com.br/api/v1/produtos/pedido/'
@@ -2578,12 +2578,17 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '') -> dict:
             break
     print(f"  Vendedores: {len(mapa_vend)} cadastrados na Omie")
 
-    # 2. Busca pedidos do periodo: {codigo_pedido -> nome_vendedor}
-    #    nIdPedido da NF (ListarDocumentos) == codigo_pedido do pedido -> join direto!
+    # 2. Busca pedidos: {codigo_pedido -> nome_vendedor}
+    #    nIdPedido da NF == codigo_pedido do pedido -> join direto.
+    #    Para quando todos os ids do df forem encontrados (early-stop).
     mapa_ped_vend: dict = {}
+    pendentes = set(ids_pedido) if ids_pedido else None  # nIdPedidos que faltam
     pag = 1
+    tot_pag = 1  # sera atualizado na 1a chamada
     while True:
         try:
+            _prog(0.44 + (pag / max(tot_pag, 1)) * 0.48,
+                  f'Vendedores: pagina {pag}/{tot_pag}...')
             ped_param = {'pagina': pag, 'registros_por_pagina': 100,
                          'apenas_importado_api': 'N'}
             if data_ini:
@@ -2595,14 +2600,22 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '') -> dict:
                 'app_secret': OMIE_APP_SECRET,
                 'param': [ped_param]
             }, timeout=60).json()
+            tot_pag = r.get('total_de_paginas', tot_pag)
             pedidos = r.get('pedido_venda_produto', [])
             for p in pedidos:
                 cod_ped  = p.get('cabecalho', {}).get('codigo_pedido')
                 cod_vend = p.get('informacoes_adicionais', {}).get('codVend')
                 if cod_ped and cod_vend:
-                    mapa_ped_vend[int(cod_ped)] = mapa_vend.get(
+                    cod_ped_int = int(cod_ped)
+                    mapa_ped_vend[cod_ped_int] = mapa_vend.get(
                         int(cod_vend), 'Sem Vendedor')
-            if pag >= r.get('total_de_paginas', 1):
+                    if pendentes is not None:
+                        pendentes.discard(cod_ped_int)
+            # Early-stop: todos os pedidos do df foram encontrados
+            if pendentes is not None and len(pendentes) == 0:
+                print(f"  Early-stop na pag {pag}/{tot_pag}: todos os pedidos encontrados")
+                break
+            if pag >= tot_pag:
                 break
             pag += 1
         except Exception as e:
@@ -2698,7 +2711,9 @@ def main(
     _prog(0.44, 'Buscando mapa de vendedores...')
     print("\nBuscando mapa de vendedores (Omie API)...")
     try:
-        mapa_vendedor = _buscar_mapa_vendedor(data_ini=_data_ini, data_fim=_data_fim)
+        _ids_ped = set(df['nIdPedido'].dropna().astype(int).unique())
+        mapa_vendedor = _buscar_mapa_vendedor(data_ini=_data_ini, data_fim=_data_fim,
+                                               ids_pedido=_ids_ped)
         df['Vendedor'] = df['nIdPedido'].map(mapa_vendedor).fillna('Sem Vendedor')
         print(f"  ✔ {df['Vendedor'].nunique()} vendedores identificados")
     except Exception as _e_vend:
