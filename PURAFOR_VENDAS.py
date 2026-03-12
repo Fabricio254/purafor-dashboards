@@ -1,4 +1,4 @@
-"""
+﻿"""
 Relatório de Análise de Vendas por Produto
 Empresa: PURAFOR
 Lê todos os XMLs de NF-e da pasta e gera um relatório Excel
@@ -1986,6 +1986,9 @@ function toggleCanal(canal, lbl) {{
 //  VENDAS POR VENDEDOR
 // ═
 function renderVendedor(rows) {{
+  // Filtrar apenas canais ativos (igual ao atualizarKPIs)
+  const ativos = canaisAtivos();
+  rows = rows.filter(r => ativos.includes(canalDeRow(r)));
   const mapa = {{}};
   rows.forEach(r => {{
     const v = r.vendedor || 'Sem Vendedor';
