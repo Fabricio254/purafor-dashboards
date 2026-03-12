@@ -2581,49 +2581,74 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
             break
     print(f"  Vendedores: {len(mapa_vend)} cadastrados na Omie")
 
-    # 2. Busca pedidos: {codigo_pedido -> nome_vendedor}
-    #    nIdPedido da NF == codigo_pedido do pedido -> join direto.
-    #    Para quando todos os ids do df forem encontrados (early-stop).
+    # 2. Busca pedidos em PARALELO: {codigo_pedido -> nome_vendedor}
+    #    Pag 1 revela total_de_paginas; restante disparado simultaneamente.
+    #    Serial: ~1.5s/pag x 19 pags = ~28s → Paralelo: ~5s (6 workers).
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+
     mapa_ped_vend: dict = {}
-    pendentes = set(ids_pedido) if ids_pedido else None  # nIdPedidos que faltam
-    pag = 1
-    tot_pag = 1  # sera atualizado na 1a chamada
-    while True:
+    lock = threading.Lock()
+
+    def _ped_param(pag):
+        p = {"pagina": pag, "registros_por_pagina": 100,
+             "apenas_importado_api": "N"}
+        if data_ini:
+            p["filtrar_por_data_de"] = data_ini
+        if data_fim:
+            p["filtrar_por_data_ate"] = data_fim
+        return p
+
+    def _buscar_pag(pag):
+        # Retorna (total_de_paginas, lista_pedidos) para a pagina pag.
         try:
-            _prog(0.44 + (pag / max(tot_pag, 1)) * 0.48,
-                  f'Vendedores: pagina {pag}/{tot_pag}...')
-            ped_param = {'pagina': pag, 'registros_por_pagina': 100,
-                         'apenas_importado_api': 'N'}
-            if data_ini:
-                ped_param['filtrar_por_data_de'] = data_ini
-            if data_fim:
-                ped_param['filtrar_por_data_ate'] = data_fim
             r = requests.post(URL_PED, json={
-                'call': 'ListarPedidos', 'app_key': OMIE_APP_KEY,
-                'app_secret': OMIE_APP_SECRET,
-                'param': [ped_param]
+                "call": "ListarPedidos", "app_key": OMIE_APP_KEY,
+                "app_secret": OMIE_APP_SECRET,
+                "param": [_ped_param(pag)]
             }, timeout=60).json()
-            tot_pag = r.get('total_de_paginas', tot_pag)
-            pedidos = r.get('pedido_venda_produto', [])
-            for p in pedidos:
-                cod_ped  = p.get('cabecalho', {}).get('codigo_pedido')
-                cod_vend = p.get('informacoes_adicionais', {}).get('codVend')
-                if cod_ped and cod_vend:
-                    cod_ped_int = int(cod_ped)
-                    mapa_ped_vend[cod_ped_int] = mapa_vend.get(
-                        int(cod_vend), 'Sem Vendedor')
-                    if pendentes is not None:
-                        pendentes.discard(cod_ped_int)
-            # Early-stop: todos os pedidos do df foram encontrados
-            if pendentes is not None and len(pendentes) == 0:
-                print(f"  Early-stop na pag {pag}/{tot_pag}: todos os pedidos encontrados")
-                break
-            if pag >= tot_pag:
-                break
-            pag += 1
+            return (r.get("total_de_paginas", 1),
+                    r.get("pedido_venda_produto", []))
         except Exception as e:
-            print(f"  [AVISO] Erro ao buscar pedidos (pag {pag}): {e}")
-            break
+            print(f"  [AVISO] Erro pag {pag}: {e}")
+            return 1, []
+
+    def _processar(pedidos):
+        # Extrai cod_ped->nome_vendedor e insere em mapa_ped_vend (thread-safe).
+        parcial = {}
+        for p in pedidos:
+            cod_ped  = p.get("cabecalho", {}).get("codigo_pedido")
+            cod_vend = p.get("informacoes_adicionais", {}).get("codVend")
+            if cod_ped and cod_vend:
+                parcial[int(cod_ped)] = mapa_vend.get(
+                    int(cod_vend), "Sem Vendedor")
+        with lock:
+            mapa_ped_vend.update(parcial)
+
+    # Pag 1: descobre total_de_paginas
+    _prog(0.44, "Vendedores: buscando pedidos...")
+    tot_pag, p1 = _buscar_pag(1)
+    _processar(p1)
+    print(f"  Pedidos: {tot_pag} pags no periodo")
+
+    # Pags 2..N em paralelo (max 6 workers)
+    concluidas = 1
+    if tot_pag > 1:
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            futs = {ex.submit(_buscar_pag, pg): pg
+                    for pg in range(2, tot_pag + 1)}
+            for fut in as_completed(futs):
+                _, peds = fut.result()
+                _processar(peds)
+                concluidas += 1
+                _prog(0.44 + (concluidas / tot_pag) * 0.48,
+                      f"Vendedores: {concluidas}/{tot_pag} pags...")
+                # Early-stop: todos os nIdPedidos do df ja foram mapeados
+                if ids_pedido and ids_pedido.issubset(mapa_ped_vend.keys()):
+                    print(f"  Early-stop na pag {concluidas}/{tot_pag}")
+                    ex.shutdown(wait=False, cancel_futures=True)
+                    break
+
     print(f"  Pedidos com vendedor: {len(mapa_ped_vend)} no periodo")
     return mapa_ped_vend
 
