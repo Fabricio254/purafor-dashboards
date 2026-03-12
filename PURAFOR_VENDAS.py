@@ -370,8 +370,12 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
                 if doc.get('cStatus') == '40':
                     continue
                 xml_str = doc.get('cXml', '')
+                n_id_pedido = doc.get('nIdPedido', 0)
                 if xml_str:
-                    registros.extend(_parsear_xml_nfe(xml_str))
+                    itens = _parsear_xml_nfe(xml_str)
+                    for item in itens:
+                        item['nIdPedido'] = n_id_pedido
+                    registros.extend(itens)
 
         except Exception as e:
             print(f"  [AVISO] Erro pág {pag}: {e}")
@@ -1257,15 +1261,20 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
     periodo = f"{dt_min.strftime('%d/%m/%Y')} a {dt_max.strftime('%d/%m/%Y')}"
 
     # ── Listas para os selects de Família e Marca ───────────────────
-    familias = sorted([f for f in df["Família"].dropna().unique()
-                       if f and f != "SEM CADASTRO"])
-    marcas   = sorted([m for m in df["Marca"].dropna().unique()
-                       if m and m != "SEM CADASTRO"])
+    familias   = sorted([f for f in df["Família"].dropna().unique()
+                        if f and f != "SEM CADASTRO"])
+    marcas     = sorted([m for m in df["Marca"].dropna().unique()
+                        if m and m != "SEM CADASTRO"])
+    if "Vendedor" not in df.columns:
+        df = df.copy()
+        df["Vendedor"] = "Sem Vendedor"
+    vendedores = sorted([v for v in df["Vendedor"].dropna().unique()
+                        if v and v != "Sem Vendedor"])
 
     # ── Dados brutos para o JS (cada linha de venda) ────────────────
     cols_raw = ["NF", "Data Emissão", "Cliente", "Cód. Produto",
                 "Produto", "Família", "Marca", "UF Dest.",
-                "Qtd", "Vlr Bruto", "Desconto", "Vlr Líquido"]
+                "Qtd", "Vlr Bruto", "Desconto", "Vlr Líquido", "Vendedor"]
     raw = []
     for _, r in df[cols_raw].iterrows():
         raw.append({
@@ -1281,6 +1290,7 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
             "bruto":   round(float(r["Vlr Bruto"]), 2),
             "desc":    round(float(r["Desconto"]), 2),
             "liq":     round(float(r["Vlr Líquido"]), 2),
+            "vendedor": str(r["Vendedor"]) if r["Vendedor"] else "Sem Vendedor",
         })
 
 
@@ -1322,6 +1332,7 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
     # Opções HTML dos selects
     opt_fam  = "\n".join(f'<option value="{f}">{f}</option>' for f in familias)
     opt_marc = "\n".join(f'<option value="{m}">{m}</option>' for m in marcas)
+    opt_vend = "\n".join(f'<option value="{v}">{v}</option>' for v in vendedores)
 
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -1554,6 +1565,13 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
     <label>📅 Data Fim</label>
     <input type="date" id="fDateFim" value="{dt_max_iso}"/>
   </div>
+  <div class="filter-group">
+    <label>Vendedor</label>
+    <select id="fVend" onchange="aplicarFiltros()" style="min-width:160px">
+      <option value="">Todos</option>
+      {opt_vend}
+    </select>
+  </div>
   <div class="filter-sep"></div>
   <button class="btn btn-apply" onclick="aplicarFiltros()">▶ Aplicar</button>
   <button class="btn btn-clear" onclick="limparFiltros()">✕ Limpar</button>
@@ -1728,6 +1746,24 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
     </div>
   </div>
 
+  <!-- VENDAS POR VENDEDOR -->
+  <div class="section-title">🧑‍💼 Vendas por Vendedor</div>
+  <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px;">
+    <div class="chart-wrap" style="flex:2 1 380px;"><canvas id="chartVendedor" height="200"></canvas></div>
+    <div style="flex:1 1 280px;overflow-x:auto;">
+      <table class="tbl-canal" style="width:100%;font-size:12px;">
+        <thead><tr style="background:#f8fafc;">
+          <th style="text-align:left;padding:6px 8px;">Vendedor</th>
+          <th style="padding:6px 8px;">Fat. Líquido</th>
+          <th style="padding:6px 8px;">Part.%</th>
+          <th style="padding:6px 8px;">Qtd</th>
+          <th style="padding:6px 8px;">Nº NFs</th>
+        </tr></thead>
+        <tbody id="tblVendedorBody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- TABELA DETALHADA -->
   <div class="section-title">Detalhe por Canal / Mês</div>
   <div class="canal-card">
@@ -1891,6 +1927,118 @@ function toggleCanal(canal, lbl) {{
     lbl.classList.remove('ativo-'+canal);
   }}
   atualizar();
+}}
+
+// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+//  VENDAS POR VENDEDOR
+// ═
+function renderVendedor(rows) {{
+  const mapa = {{}};
+  rows.forEach(r => {{
+    const v = r.vendedor || 'Sem Vendedor';
+    if (!mapa[v]) mapa[v] = {{liq:0, qtd:0, nfs: new Set()}};
+    mapa[v].liq += r.liq;
+    mapa[v].qtd += r.qtd;
+    mapa[v].nfs.add(r.nf);
+  }});
+  const total = Object.values(mapa).reduce((s,x) => s + x.liq, 0);
+  const sorted = Object.entries(mapa).sort((a,b) => b[1].liq - a[1].liq);
+
+  let html = '';
+  sorted.forEach(([nome, d]) => {{
+    const part = total > 0 ? (d.liq / total * 100) : 0;
+    html += `<tr>
+      <td style='text-align:left;padding:5px 8px;'>${{nome}}</td>
+      <td class='num destaque' style='padding:5px 8px;'>${{BRL(d.liq)}}</td>
+      <td class='num' style='padding:5px 8px;'>${{part.toFixed(1)}}%</td>
+      <td class='num azul' style='padding:5px 8px;'>${{NUM(Math.round(d.qtd))}}</td>
+      <td class='num' style='padding:5px 8px;'>${{NUM(d.nfs.size)}}</td>
+    </tr>`;
+  }});
+  document.getElementById('tblVendedorBody').innerHTML = html;
+
+  destroyChart('chartVendedor');
+  const canvas = document.getElementById('chartVendedor');
+  if (!canvas) return;
+  const labels = sorted.map(([n]) => n.length > 24 ? n.substring(0, 24) + '…' : n);
+  const valores = sorted.map(([, d]) => Math.round(d.liq));
+  const CORES_V = ['#2563eb','#059669','#d97706','#7c3aed','#db2777',
+                   '#0891b2','#dc2626','#65a30d','#ea580c','#0d9488','#2d3748','#4a5568'];
+  charts['chartVendedor'] = new Chart(canvas, {{
+    type: 'bar',
+    data: {{
+      labels: labels,
+      datasets: [{{
+        label: 'Fat. Líquido',
+        data: valores,
+        backgroundColor: CORES_V.slice(0, sorted.length),
+        borderRadius: 4,
+        borderSkipped: false,
+      }}]
+    }},
+    options: {{
+      indexAxis: 'y',
+      plugins: {{
+        legend: {{ display: false }},
+        tooltip: {{ callbacks: {{ label: c => BRL(c.raw) }} }}
+      }},
+      scales: {{
+        x: {{
+          ticks: {{ callback: v => 'R$' + (v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) }},
+          grid: {{ color: '#e2e8f0' }}
+        }},
+        y: {{ grid: {{ display: false }} }}
+      }}
+    }}
+  }});
 }}
 
 function renderCanalTable(rows) {{
@@ -2135,9 +2283,11 @@ function filtrar() {{
   const ini = document.getElementById('fDateIni').value;
   const fim = document.getElementById('fDateFim').value;
 
+  const vend = document.getElementById('fVend') ? document.getElementById('fVend').value : '';
   dadosFiltrados = DADOS.filter(r => {{
     if (ini && r.data < ini) return false;
     if (fim && r.data > fim) return false;
+    if (vend && r.vendedor !== vend) return false;
     return true;
   }});
 
@@ -2360,6 +2510,7 @@ function atualizar() {{
   mkParticipacao(rows);
   mkShareEvolucao(rows);
   renderCanalTable(rows);
+  renderVendedor(rows);
 }}
 
 function aplicarFiltros() {{ filtrar(); atualizar(); }}
@@ -2368,6 +2519,7 @@ function limparFiltros() {{
   document.getElementById('fDateIni').value = '{dt_min_iso}';
   document.getElementById('fDateFim').value = '{dt_max_iso}';
   document.getElementById('filtroInfo').textContent = '';
+  if (document.getElementById('fVend')) document.getElementById('fVend').value = '';
   dadosFiltrados    = DADOS;
   atualizar();
 }}
@@ -2382,6 +2534,59 @@ atualizar();
     with open(caminho_saida, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"  ✔ Dashboard HTML salvo em:\n    {caminho_saida}")
+
+
+# ──────────────────────────────────────────────
+# MAPA VENDEDOR (Omie: ListarPedidos + ListarVendedores)
+# ──────────────────────────────────────────────
+def _buscar_mapa_vendedor() -> dict:
+    """Retorna {nIdPedido (int): nome_vendedor (str)} para todos os pedidos."""
+    URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
+    URL_PED  = 'https://app.omie.com.br/api/v1/produtos/pedido/'
+
+    mapa_vend: dict = {}
+    pag = 1
+    while True:
+        try:
+            r = requests.post(URL_VEND, json={
+                'call': 'ListarVendedores', 'app_key': OMIE_APP_KEY,
+                'app_secret': OMIE_APP_SECRET,
+                'param': [{'pagina': pag, 'registros_por_pagina': 100}]
+            }, timeout=30).json()
+            for v in r.get('cadastro', []):
+                mapa_vend[v['codigo']] = v['nome']
+            if pag >= r.get('total_de_paginas', 1):
+                break
+            pag += 1
+        except Exception as e:
+            print(f'  [AVISO] Erro ao buscar vendedores (pág {pag}): {e}')
+            break
+    print(f'  ✔ {len(mapa_vend)} vendedores cadastrados na Omie')
+
+    mapa_pedido: dict = {}
+    pag = 1
+    while True:
+        try:
+            r = requests.post(URL_PED, json={
+                'call': 'ListarPedidos', 'app_key': OMIE_APP_KEY,
+                'app_secret': OMIE_APP_SECRET,
+                'param': [{'pagina': pag, 'registros_por_pagina': 100,
+                           'apenas_importado_api': 'N'}]
+            }, timeout=60).json()
+            for p in r.get('pedido_venda_produto', []):
+                cod_ped  = p.get('cabecalho', {}).get('codigo_pedido')
+                cod_vend = p.get('informacoes_adicionais', {}).get('codVend')
+                if cod_ped and cod_vend:
+                    mapa_pedido[int(cod_ped)] = mapa_vend.get(
+                        int(cod_vend), 'Sem Vendedor')
+            if pag >= r.get('total_de_paginas', 1):
+                break
+            pag += 1
+        except Exception as e:
+            print(f'  [AVISO] Erro ao buscar pedidos (pág {pag}): {e}')
+            break
+    print(f'  ✔ {len(mapa_pedido)} pedidos mapeados para vendedores')
+    return mapa_pedido
 
 
 # ──────────────────────────────────────────────
@@ -2465,6 +2670,17 @@ def main(
 
     com_familia = (df["Família"] != "SEM CADASTRO").sum()
     print(f"  ✔ {com_familia:,} itens COM Família/Marca ({com_familia/len(df)*100:.1f}%)")
+
+    # ── JOIN com mapa de Vendedores ────────────────────────────
+    _prog(0.44, 'Buscando mapa de vendedores...')
+    print("\nBuscando mapa de vendedores (Omie API)...")
+    try:
+        mapa_vendedor = _buscar_mapa_vendedor()
+        df['Vendedor'] = df['nIdPedido'].map(mapa_vendedor).fillna('Sem Vendedor')
+        print(f"  ✔ {df['Vendedor'].nunique()} vendedores identificados")
+    except Exception as _e_vend:
+        print(f'  [AVISO] Erro ao buscar vendedores: {_e_vend}')
+        df['Vendedor'] = 'Sem Vendedor'
 
     print("\nGerando planilha Excel...")
 
