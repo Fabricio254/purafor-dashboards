@@ -2651,7 +2651,7 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
                       f"Vendedores: {concluidas}/{tot_pag} pags...")
                 if pendentes is not None:
                     with lock:
-                        pendentes -= mapa_ped_vend.keys()
+                        pendentes.difference_update(mapa_ped_vend.keys())
 
         # Early-stop: todos os pedidos ja foram encontrados
         if pendentes is not None and len(pendentes) == 0:
