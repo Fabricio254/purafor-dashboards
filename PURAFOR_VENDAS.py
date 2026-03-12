@@ -2610,7 +2610,7 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
             return (r.get("total_de_paginas", 1),
                     r.get("pedido_venda_produto", []))
         except Exception as e:
-            print(f"  [AVISO] Erro pag {pag}: {e}")
+            print(f"  [ERRO] Falha pag {pag} ({type(e).__name__}): {e}")
             return 1, []
 
     def _processar(pedidos):
@@ -2631,10 +2631,10 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
     _processar(p1)
     print(f"  Pedidos: {tot_pag} pags no periodo")
 
-    # Pags 2..N em paralelo (max 6 workers)
+    # Pags 2..N em paralelo (max 2 workers — Omie rejeita mais concurrentes)
     concluidas = 1
     if tot_pag > 1:
-        with ThreadPoolExecutor(max_workers=6) as ex:
+        with ThreadPoolExecutor(max_workers=2) as ex:
             futs = {ex.submit(_buscar_pag, pg): pg
                     for pg in range(2, tot_pag + 1)}
             for fut in as_completed(futs):
