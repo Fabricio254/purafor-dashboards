@@ -2546,20 +2546,17 @@ atualizar();
 # ──────────────────────────────────────────────
 def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '') -> dict:
     """
-    Retorna {CNPJ_dest (str, só dígitos): nome_vendedor (str)}.
+    Retorna {codigo_pedido (int): nome_vendedor (str)}.
 
-    Estratégia:
-      1. ListarVendedores  -> {codigo_vend -> nome}
-      2. ListarPedidos (filtrado por data) -> {codigo_cliente -> nome_vendedor}
-      3. ListarClientes    -> {cnpj (só dígitos) -> codigo_cliente}
-      4. Join              -> {cnpj -> nome_vendedor}
-
-    Filtrando ListarPedidos por data_ini/data_fim reduz de ~39 páginas a ~4,
-    tornando a função ~10x mais rápida.
+    Estrategia OTIMIZADA (join direto - sem ListarClientes):
+      1. ListarVendedores  -> {codigo_vend -> nome}           (1 pag ~0.5s)
+      2. ListarPedidos (filtrado por data) -> {codigo_pedido -> nome_vendedor}
+                                                              (~4 pags ~4s)
+      Join via nIdPedido da NF = codigo_pedido do pedido.
+      Elimina completamente ListarClientes (33 pags = ~33s economizados).
     """
     URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
     URL_PED  = 'https://app.omie.com.br/api/v1/produtos/pedido/'
-    URL_CLI  = 'https://app.omie.com.br/api/v1/geral/clientes/'
 
     # 1. Busca todos os vendedores: {codigo -> nome}
     mapa_vend: dict = {}
@@ -2581,13 +2578,14 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '') -> dict:
             break
     print(f"  Vendedores: {len(mapa_vend)} cadastrados na Omie")
 
-    # 2. Busca todos os pedidos: {codigo_cliente -> nome_vendedor} (último pedido ganha)
-    mapa_cli_vend: dict = {}
+    # 2. Busca pedidos do periodo: {codigo_pedido -> nome_vendedor}
+    #    nIdPedido da NF (ListarDocumentos) == codigo_pedido do pedido -> join direto!
+    mapa_ped_vend: dict = {}
     pag = 1
     while True:
         try:
             ped_param = {'pagina': pag, 'registros_por_pagina': 100,
-                             'apenas_importado_api': 'N'}
+                         'apenas_importado_api': 'N'}
             if data_ini:
                 ped_param['filtrar_por_data_de'] = data_ini
             if data_fim:
@@ -2599,10 +2597,10 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '') -> dict:
             }, timeout=60).json()
             pedidos = r.get('pedido_venda_produto', [])
             for p in pedidos:
-                cod_cli  = p.get('cabecalho', {}).get('codigo_cliente')
+                cod_ped  = p.get('cabecalho', {}).get('codigo_pedido')
                 cod_vend = p.get('informacoes_adicionais', {}).get('codVend')
-                if cod_cli and cod_vend:
-                    mapa_cli_vend[int(cod_cli)] = mapa_vend.get(
+                if cod_ped and cod_vend:
+                    mapa_ped_vend[int(cod_ped)] = mapa_vend.get(
                         int(cod_vend), 'Sem Vendedor')
             if pag >= r.get('total_de_paginas', 1):
                 break
@@ -2610,41 +2608,8 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '') -> dict:
         except Exception as e:
             print(f"  [AVISO] Erro ao buscar pedidos (pag {pag}): {e}")
             break
-    print(f"  Pedidos: {len(mapa_cli_vend)} clientes com vendedor identificado")
-
-    # 3. Busca todos os clientes: {cnpj (só dígitos) -> codigo_cliente}
-    mapa_cnpj_cli: dict = {}
-    pag = 1
-    while True:
-        try:
-            r = requests.post(URL_CLI, json={
-                'call': 'ListarClientes', 'app_key': OMIE_APP_KEY,
-                'app_secret': OMIE_APP_SECRET,
-                'param': [{'pagina': pag, 'registros_por_pagina': 100}]
-            }, timeout=60).json()
-            clientes = r.get('clientes_cadastro', [])
-            for c in clientes:
-                raw = c.get('cnpj_cpf', '')
-                cnpj = raw.replace('.', '').replace('/', '').replace('-', '').strip()
-                cod_cli = c.get('codigo_cliente_omie')
-                if cnpj and cod_cli:
-                    mapa_cnpj_cli[cnpj] = int(cod_cli)
-            if pag >= r.get('total_de_paginas', 1):
-                break
-            pag += 1
-        except Exception as e:
-            print(f"  [AVISO] Erro ao buscar clientes (pag {pag}): {e}")
-            break
-    print(f"  Clientes: {len(mapa_cnpj_cli)} CNPJs/CPFs mapeados")
-
-    # 4. Join: {cnpj -> nome_vendedor}
-    mapa_final: dict = {}
-    for cnpj, cod_cli in mapa_cnpj_cli.items():
-        nome_vend = mapa_cli_vend.get(cod_cli)
-        if nome_vend:
-            mapa_final[cnpj] = nome_vend
-    print(f"  ✔ {len(mapa_final)} CNPJs com vendedor para mapping")
-    return mapa_final
+    print(f"  Pedidos com vendedor: {len(mapa_ped_vend)} no periodo")
+    return mapa_ped_vend
 
 
 # ──────────────────────────────────────────────
@@ -2734,7 +2699,7 @@ def main(
     print("\nBuscando mapa de vendedores (Omie API)...")
     try:
         mapa_vendedor = _buscar_mapa_vendedor(data_ini=_data_ini, data_fim=_data_fim)
-        df['Vendedor'] = df['CNPJ_Dest'].map(mapa_vendedor).fillna('Sem Vendedor')
+        df['Vendedor'] = df['nIdPedido'].map(mapa_vendedor).fillna('Sem Vendedor')
         print(f"  ✔ {df['Vendedor'].nunique()} vendedores identificados")
     except Exception as _e_vend:
         print(f'  [AVISO] Erro ao buscar vendedores: {_e_vend}')
