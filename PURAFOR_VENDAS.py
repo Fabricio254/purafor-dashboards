@@ -2591,13 +2591,10 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
     lock = threading.Lock()
 
     def _ped_param(pag):
-        p = {"pagina": pag, "registros_por_pagina": 100,
-             "apenas_importado_api": "N"}
-        if data_ini:
-            p["filtrar_por_data_de"] = data_ini
-        if data_fim:
-            p["filtrar_por_data_ate"] = data_fim
-        return p
+        # SEM filtro de data: pedido pode ter sido criado antes do periodo das NFs.
+        # O early-stop para assim que todos os nIdPedido forem encontrados.
+        return {"pagina": pag, "registros_por_pagina": 100,
+                "apenas_importado_api": "N"}
 
     def _buscar_pag(pag):
         # Retorna (total_de_paginas, lista_pedidos) para a pagina pag.
@@ -2631,23 +2628,35 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
     _processar(p1)
     print(f"  Pedidos: {tot_pag} pags no periodo")
 
-    # Pags 2..N em paralelo (max 2 workers — Omie rejeita mais concurrentes)
-    concluidas = 1
-    if tot_pag > 1:
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            futs = {ex.submit(_buscar_pag, pg): pg
-                    for pg in range(2, tot_pag + 1)}
+    # Pags 2..N em paralelo com lotes de 3 (Omie API limit)
+    # Sem filtro de data para capturar pedidos criados antes do periodo das NFs.
+    # pendentes: nIdPedidos ainda nao encontrados; para ao esgotar ou pag maxima.
+    MAX_PAGS = 100  # limite de seguranca para nao varrer historico infinito
+    pendentes = set(ids_pedido) if ids_pedido else None
+    concluidas = 1  # pag 1 ja processada
+
+    pag_atual = 2
+    while pag_atual <= min(tot_pag, MAX_PAGS):
+        # Submete lote de 3 paginas simultaneamente
+        lote = list(range(pag_atual, min(pag_atual + 3, min(tot_pag, MAX_PAGS) + 1)))
+        pag_atual += len(lote)
+
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            futs = {ex.submit(_buscar_pag, pg): pg for pg in lote}
             for fut in as_completed(futs):
                 _, peds = fut.result()
                 _processar(peds)
                 concluidas += 1
-                _prog(0.44 + (concluidas / tot_pag) * 0.48,
+                _prog(0.44 + (concluidas / min(tot_pag, MAX_PAGS)) * 0.48,
                       f"Vendedores: {concluidas}/{tot_pag} pags...")
-                # Early-stop: todos os nIdPedidos do df ja foram mapeados
-                if ids_pedido and ids_pedido.issubset(mapa_ped_vend.keys()):
-                    print(f"  Early-stop na pag {concluidas}/{tot_pag}")
-                    ex.shutdown(wait=False, cancel_futures=True)
-                    break
+                if pendentes is not None:
+                    with lock:
+                        pendentes -= mapa_ped_vend.keys()
+
+        # Early-stop: todos os pedidos ja foram encontrados
+        if pendentes is not None and len(pendentes) == 0:
+            print(f"  Early-stop: todos os pedidos encontrados ({concluidas}/{tot_pag} pags)")
+            break
 
     print(f"  Pedidos com vendedor: {len(mapa_ped_vend)} no periodo")
     return mapa_ped_vend
