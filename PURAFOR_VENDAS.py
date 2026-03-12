@@ -2544,15 +2544,18 @@ atualizar();
 # ──────────────────────────────────────────────
 # MAPA VENDEDOR (Omie: ListarPedidos + ListarVendedores)
 # ──────────────────────────────────────────────
-def _buscar_mapa_vendedor() -> dict:
+def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '') -> dict:
     """
     Retorna {CNPJ_dest (str, só dígitos): nome_vendedor (str)}.
 
     Estratégia:
       1. ListarVendedores  -> {codigo_vend -> nome}
-      2. ListarPedidos     -> {codigo_cliente -> nome_vendedor}  (último pedido ganha)
+      2. ListarPedidos (filtrado por data) -> {codigo_cliente -> nome_vendedor}
       3. ListarClientes    -> {cnpj (só dígitos) -> codigo_cliente}
       4. Join              -> {cnpj -> nome_vendedor}
+
+    Filtrando ListarPedidos por data_ini/data_fim reduz de ~39 páginas a ~4,
+    tornando a função ~10x mais rápida.
     """
     URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
     URL_PED  = 'https://app.omie.com.br/api/v1/produtos/pedido/'
@@ -2583,11 +2586,16 @@ def _buscar_mapa_vendedor() -> dict:
     pag = 1
     while True:
         try:
+            ped_param = {'pagina': pag, 'registros_por_pagina': 100,
+                             'apenas_importado_api': 'N'}
+            if data_ini:
+                ped_param['filtrar_por_data_de'] = data_ini
+            if data_fim:
+                ped_param['filtrar_por_data_ate'] = data_fim
             r = requests.post(URL_PED, json={
                 'call': 'ListarPedidos', 'app_key': OMIE_APP_KEY,
                 'app_secret': OMIE_APP_SECRET,
-                'param': [{'pagina': pag, 'registros_por_pagina': 100,
-                           'apenas_importado_api': 'N'}]
+                'param': [ped_param]
             }, timeout=60).json()
             pedidos = r.get('pedido_venda_produto', [])
             for p in pedidos:
@@ -2725,7 +2733,7 @@ def main(
     _prog(0.44, 'Buscando mapa de vendedores...')
     print("\nBuscando mapa de vendedores (Omie API)...")
     try:
-        mapa_vendedor = _buscar_mapa_vendedor()
+        mapa_vendedor = _buscar_mapa_vendedor(data_ini=_data_ini, data_fim=_data_fim)
         df['Vendedor'] = df['CNPJ_Dest'].map(mapa_vendedor).fillna('Sem Vendedor')
         print(f"  ✔ {df['Vendedor'].nunique()} vendedores identificados")
     except Exception as _e_vend:
