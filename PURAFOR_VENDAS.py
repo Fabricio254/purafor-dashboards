@@ -2778,14 +2778,13 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     mapa_chave_vend: dict = {}
     pag = 1
     while True:
-        _vt.sleep(0.3)  # rate limit Omie (ListarNF nao tem lock como CR)
         try:
             r = requests.post(URL_NF, json={
                 'call': 'ListarNF', 'app_key': OMIE_APP_KEY,
                 'app_secret': OMIE_APP_SECRET,
                 'param': [{
                     'pagina':              pag,
-                    'registros_por_pagina': 100,
+                    'registros_por_pagina': 500,
                     'dEmiInicial':         data_ini,
                     'dEmiFinal':           data_fim,
                     'tpNF':                '1',   # apenas saida (vendas)
