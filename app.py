@@ -20,6 +20,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ─── CSS global ────────────────────────────────────────────────────
+st.markdown("""
+<style>
+.block-container{padding-top:.6rem!important;padding-bottom:0!important;}
+iframe{border:none!important;}
+</style>
+""", unsafe_allow_html=True)
+
 # ─── Tela de login ────────────────────────────────────────────────
 _SENHA_CORRETA = "zampa254"
 

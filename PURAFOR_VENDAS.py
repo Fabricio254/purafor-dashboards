@@ -1574,6 +1574,13 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
     background:#334155;color:#f1f5f9;transition:all .2s;
     display:flex;align-items:center;justify-content:center;line-height:1;}}
   #btn-theme:hover{{transform:scale(1.12);box-shadow:0 6px 24px rgba(0,0,0,.5);}}
+  #btn-fullscreen{{position:fixed;bottom:24px;right:80px;z-index:10000;
+    width:48px;height:48px;border-radius:50%;border:2px solid rgba(255,255,255,.18);
+    cursor:pointer;font-size:18px;box-shadow:0 4px 18px rgba(0,0,0,.35);
+    background:#334155;color:#f1f5f9;transition:all .2s;
+    display:flex;align-items:center;justify-content:center;line-height:1;}}
+  #btn-fullscreen:hover{{transform:scale(1.12);box-shadow:0 6px 24px rgba(0,0,0,.5);}}
+  body[data-theme="dark"] #btn-fullscreen{{background:#e2e8f0;color:#1e293b;border-color:rgba(0,0,0,.18);}}
   body[data-theme="dark"]{{background:#0f172a;color:#e2e8f0;}}
   body[data-theme="dark"] .filter-bar{{background:#1e293b;border-color:#334155;box-shadow:0 1px 4px rgba(0,0,0,.4);}}
   body[data-theme="dark"] .filter-group label{{color:#94a3b8;}}
@@ -1632,6 +1639,8 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
 <body>
 <!-- BOTÃO DARK MODE -->
 <button id="btn-theme" onclick="toggleTheme()" title="Alternar modo claro/escuro">🌙</button>
+<!-- BOTÃO TELA CHEIA -->
+<button id="btn-fullscreen" onclick="openFullScreen()" title="Abrir em tela cheia">⛶</button>
 
 <!-- TOPBAR -->
 <div class="topbar">
@@ -2656,6 +2665,13 @@ function limparFiltros() {{
 // ── Inicializa ──────────────────────────────────────
 dadosFiltrados    = DADOS;
 atualizar();
+// ── TELA CHEIA ─────────────────────────────────────
+function openFullScreen() {{
+  const html = '<!DOCTYPE html>' + document.documentElement.outerHTML;
+  const blob = new Blob([html], {{type: 'text/html'}});
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+}}
 // ── DARK MODE ─────────────────────────────────────
 function toggleTheme() {{
   const body = document.body;
