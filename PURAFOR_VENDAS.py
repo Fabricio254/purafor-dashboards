@@ -2600,14 +2600,14 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     mapa_chave_vend: dict = {}
     pag = 1
     while True:
-        _vt.sleep(1)  # respeita rate limit Omie
+        _vt.sleep(0.3)  # rate limit Omie (ListarNF nao tem lock como CR)
         try:
             r = requests.post(URL_NF, json={
                 'call': 'ListarNF', 'app_key': OMIE_APP_KEY,
                 'app_secret': OMIE_APP_SECRET,
                 'param': [{
                     'pagina':              pag,
-                    'registros_por_pagina': 50,
+                    'registros_por_pagina': 100,
                     'dEmiInicial':         data_ini,
                     'dEmiFinal':           data_fim,
                     'tpNF':                '1',   # apenas saida (vendas)
@@ -2736,22 +2736,23 @@ def main(
         # 'nChave' pode estar ausente em cache antigo — preenche com '' se faltar
         if 'nChave' not in df.columns:
             df['nChave'] = ''
+        # Garante nChave como string limpa (NaN vira '')
+        df['nChave'] = df['nChave'].fillna('').astype(str)
+        # Aplica o mapa ANTES de qualquer diagnostico (evita bug no except)
+        df['Vendedor'] = df['nChave'].map(mapa_vendedor).fillna('Sem Vendedor')
+        # Diagnostico
         n_com_chave = int((df['nChave'] != '').sum())
+        n_vend = int((df['Vendedor'] != 'Sem Vendedor').sum())
         print(f"  Diagnostico JOIN: {len(df)} itens | {n_com_chave} com nChave | "
-              f"{len(mapa_vendedor)} entradas no mapa ListarNF")
-        if n_com_chave == 0:
-            print("  [AVISO] nChave vazio em TODOS os itens -- cache antigo?")
-        if len(mapa_vendedor) == 0:
-            print("  [AVISO] Mapa VAZIO -- ListarNF nao retornou dados")
+              f"{len(mapa_vendedor)} entradas no mapa | {n_vend} com vendedor ")
         sample = df.loc[df['nChave'] != '', 'nChave'].head(3).tolist()
         for ch in sample:
-            res = mapa_vendedor.get(ch, 'NAO ENCONTRADO')
-            print(f"    nChave={ch[:22]}... -> {res}")
-        df['Vendedor'] = df['nChave'].map(mapa_vendedor).fillna('Sem Vendedor')
-        n_vend = int((df['Vendedor'] != 'Sem Vendedor').sum())
-        print(f"  {df['Vendedor'].nunique()} vendedores | {n_vend}/{len(df)} "
-              f"com vendedor ({100 * n_vend / max(len(df), 1):.1f}%)")
+            res = mapa_vendedor.get(str(ch), 'NAO ENCONTRADO')
+            print(f"    nChave={str(ch)[:22]}... -> {res}")
+        print(f"  {df['Vendedor'].nunique()} vendedores | "
+              f"{n_vend}/{len(df)} ({100 * n_vend / max(len(df), 1):.1f}%)")
     except Exception as _e_vend:
+        import traceback; traceback.print_exc()
         print(f'  [AVISO] Erro ao buscar vendedores: {_e_vend}')
         df['Vendedor'] = 'Sem Vendedor'
 
