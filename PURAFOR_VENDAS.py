@@ -323,12 +323,17 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
     - data_ini / data_fim: formato "DD/MM/AAAA"
     - NF-e canceladas (cStatus='40') são ignoradas.
     - Filtra itens com CFOP em CFOP_VENDA.
+    - Usa 500 registros/página + busca paralela (5 workers) para máxima velocidade.
     """
-    URL = 'https://app.omie.com.br/api/v1/contador/xml/'
-    REG_PAG = 50
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
 
-    try:
-        r0 = requests.post(URL, json={
+    URL = 'https://app.omie.com.br/api/v1/contador/xml/'
+    REG_PAG = 500  # máximo Omie — reduz 41 páginas → ~5 páginas
+
+    def _fetch_pag(pag_num: int) -> tuple:
+        """Busca uma página e retorna (numero_pagina, resposta)."""
+        resp = requests.post(URL, json={
             'call': 'ListarDocumentos',
             'app_key': OMIE_APP_KEY,
             'app_secret': OMIE_APP_SECRET,
@@ -336,60 +341,75 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
                 'cModelo': '55',
                 'dEmiInicial': data_ini,
                 'dEmiFinal': data_fim,
-                'nPagina': 1,
+                'nPagina': pag_num,
                 'nRegPorPagina': REG_PAG,
             }]
-        }, timeout=60)
-        resp0 = r0.json()
+        }, timeout=120).json()
+        return pag_num, resp
+
+    def _processar_resp(resp: dict) -> list:
+        """Extrai itens de uma resposta, ignorando NFs canceladas."""
+        itens_pag = []
+        for doc in resp.get('documentosEncontrados', []):
+            if doc.get('cStatus') == '40':
+                continue
+            xml_str = doc.get('cXml', '')
+            n_id_pedido = doc.get('nIdPedido', 0)
+            n_chave = doc.get('nChave', '')
+            if xml_str:
+                itens = _parsear_xml_nfe(xml_str)
+                for item in itens:
+                    item['nIdPedido'] = n_id_pedido
+                    item['nChave'] = n_chave
+                itens_pag.extend(itens)
+        return itens_pag
+
+    # ── Página 1: descobre total de páginas ──────────────────────────────────
+    try:
+        _, resp0 = _fetch_pag(1)
         if 'faultstring' in resp0:
             print(f"  [ERRO] Omie API: {resp0['faultstring']}")
             return []
-        total     = resp0.get('nTotRegistros', 0)
-        tot_pag   = resp0.get('nTotPaginas', math.ceil(total / REG_PAG))
-        print(f"  Omie: {total} NF-e no período ({tot_pag} páginas)")
+        total   = resp0.get('nTotRegistros', 0)
+        tot_pag = resp0.get('nTotPaginas', math.ceil(total / REG_PAG))
+        print(f"  Omie: {total} NF-e no período ({tot_pag} páginas de {REG_PAG})")
     except Exception as e:
         print(f"  [ERRO] Omie API indisponível: {e}")
         return []
 
+    _prog(0.08, f"Vendas: página 1/{tot_pag}...")
+
+    # ── Páginas 2..N em paralelo (5 workers simultâneos) ─────────────────────
+    _lock = threading.Lock()
+    resultados_por_pag = {1: _processar_resp(resp0)}
+    _concluidas = [1]  # contador protegido por _lock
+
+    if tot_pag > 1:
+        with ThreadPoolExecutor(max_workers=5) as ex:
+            futures = {ex.submit(_fetch_pag, p): p for p in range(2, tot_pag + 1)}
+            for fut in as_completed(futures):
+                try:
+                    pag_num, resp = fut.result()
+                    itens_pag = _processar_resp(resp)
+                    with _lock:
+                        resultados_por_pag[pag_num] = itens_pag
+                        _concluidas.append(pag_num)
+                        n_done = len(_concluidas)
+                    _prog(0.05 + (n_done / max(tot_pag, 1)) * 0.33,
+                          f"Vendas: {n_done}/{tot_pag} páginas concluídas...")
+                    print(f"    pág {pag_num}/{tot_pag} OK ({len(itens_pag)} itens)")
+                except Exception as e:
+                    pag_num = futures[fut]
+                    print(f"  [AVISO] Erro pág {pag_num}: {e}")
+                    with _lock:
+                        resultados_por_pag[pag_num] = []
+
+    # ── Ordena por página e junta tudo ───────────────────────────────────────
     registros = []
-    for pag in range(1, tot_pag + 1):
-        # Progresso: vendas ocupa faixa 0.05 → 0.38
-        _prog(0.05 + (pag / max(tot_pag, 1)) * 0.33,
-              f"Vendas: página {pag}/{tot_pag}...")
-        try:
-            resp = resp0 if pag == 1 else requests.post(URL, json={
-                'call': 'ListarDocumentos',
-                'app_key': OMIE_APP_KEY,
-                'app_secret': OMIE_APP_SECRET,
-                'param': [{
-                    'cModelo': '55',
-                    'dEmiInicial': data_ini,
-                    'dEmiFinal': data_fim,
-                    'nPagina': pag,
-                    'nRegPorPagina': REG_PAG,
-                }]
-            }, timeout=60).json()
+    for p in sorted(resultados_por_pag):
+        registros.extend(resultados_por_pag[p])
 
-            for doc in resp.get('documentosEncontrados', []):
-                # Ignora NF-e canceladas
-                if doc.get('cStatus') == '40':
-                    continue
-                xml_str = doc.get('cXml', '')
-                n_id_pedido = doc.get('nIdPedido', 0)
-                n_chave = doc.get('nChave', '')
-                if xml_str:
-                    itens = _parsear_xml_nfe(xml_str)
-                    for item in itens:
-                        item['nIdPedido'] = n_id_pedido
-                        item['nChave'] = n_chave
-                    registros.extend(itens)
-
-        except Exception as e:
-            print(f"  [AVISO] Erro pág {pag}: {e}")
-
-        if pag % 10 == 0 or pag == tot_pag:
-            print(f"    ...{pag}/{tot_pag} páginas | {len(registros)} itens")
-
+    print(f"  ✔ {len(registros)} itens de {tot_pag} páginas baixadas em paralelo")
     return registros
 
 
