@@ -2565,19 +2565,22 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
     URL_CR   = 'https://app.omie.com.br/api/v1/financas/contareceber/'
 
-    def _post_cr(param, tentativas=4):
-        """POST com retry + backoff. Retorna dict da resposta ou {}."""
+    def _post_cr(param, tentativas=5):
+        """POST com retry + backoff. 1ª tent: 1s; retries: 6s, 12s, 20s, 30s."""
+        SLEEPS = [1, 6, 12, 20, 30]
         for t in range(tentativas):
             try:
-                _time.sleep(0.6 + t * 1.5)   # 0.6s, 2.1s, 3.6s, 5.1s
+                _time.sleep(SLEEPS[t])
                 r = requests.post(URL_CR, json={
                     'call': 'ListarContasReceber', 'app_key': OMIE_APP_KEY,
                     'app_secret': OMIE_APP_SECRET, 'param': [param]
-                }, timeout=60).json()
-                # Detecta erro Omie (rate-limit, token inválido, etc.)
+                }, timeout=90).json()
+                # Detecta erro Omie (concorrência, rate-limit, etc.)
                 if 'faultcode' in r or 'faultstring' in r:
-                    print(f"  [AVISO] Omie erro (tent {t+1}/{tentativas}): "
-                          f"{r.get('faultstring', r.get('faultcode', '?'))[:80]}")
+                    msg = r.get('faultstring', r.get('faultcode', '?'))[:80]
+                    prox = SLEEPS[t+1] if t+1 < len(SLEEPS) else 0
+                    print(f"  [AVISO] Omie erro (tent {t+1}/{tentativas}" +
+                          (f", prox em {prox}s" if prox else "") + f"): {msg}")
                     continue
                 return r
             except Exception as e:
@@ -2632,6 +2635,7 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
             if pag >= tot_pags:
                 break
             pag += 1
+        _time.sleep(2)   # pausa entre vendors para liberar lock de concorrência Omie
         print(f"    {nome_vend}: {pag} pág(s) — {len(mapa_chave_vend)} NFs mapeadas")
 
     print(f"  ✔ {len(mapa_chave_vend)} NFs com vendedor identificado via Contas a Receber")
