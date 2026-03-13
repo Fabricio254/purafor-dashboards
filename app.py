@@ -155,17 +155,26 @@ if pagina == "purafor_vendas":
         log_container = st.empty()
         log_buf       = io.StringIO()
 
-        # Importa o módulo
+        # Importa o módulo — sempre reload para garantir código mais recente
+        import importlib
         _base = os.path.dirname(os.path.abspath(__file__))
         if _base not in sys.path:
             sys.path.insert(0, _base)
 
         if "PURAFOR_VENDAS" in sys.modules:
             pv = sys.modules["PURAFOR_VENDAS"]
-            pv.OMIE_APP_KEY    = os.getenv("OMIE_APP_KEY",    pv.OMIE_APP_KEY)
-            pv.OMIE_APP_SECRET = os.getenv("OMIE_APP_SECRET", pv.OMIE_APP_SECRET)
+            # Preserva cache de vendedores antes do reload
+            _vendor_cache = getattr(pv, "_VENDOR_MAP_CACHE", {})
+            _mem_vendas   = getattr(pv, "_MEM_VENDAS", None)
+            importlib.reload(pv)
+            # Restaura caches (evita refetch de vendedores dentro da sessão)
+            pv._VENDOR_MAP_CACHE = _vendor_cache
+            pv._MEM_VENDAS       = _mem_vendas
         else:
             import PURAFOR_VENDAS as pv
+
+        pv.OMIE_APP_KEY    = os.getenv("OMIE_APP_KEY",    pv.OMIE_APP_KEY)
+        pv.OMIE_APP_SECRET = os.getenv("OMIE_APP_SECRET", pv.OMIE_APP_SECRET)
 
         # Fila de progresso: itens são (pct, msg) ou (None, exc) p/ erro
         _q: queue.Queue = queue.Queue()
