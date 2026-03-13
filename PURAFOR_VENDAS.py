@@ -2662,7 +2662,7 @@ function toggleTheme() {{
   const isDark = body.getAttribute('data-theme') === 'dark';
   const next = isDark ? 'light' : 'dark';
   body.setAttribute('data-theme', next);
-  document.getElementById('btn-theme').textContent = isDark ? '\u{1F319}' : '\u2600\uFE0F';
+  document.getElementById('btn-theme').textContent = isDark ? '🌙' : '☀️';
   try {{ localStorage.setItem('purafor-theme', next); }} catch(e) {{}}
   const gridColor  = next === 'dark' ? '#334155' : '#e2e8f0';
   const labelColor = next === 'dark' ? '#94a3b8' : '#4a5568';
