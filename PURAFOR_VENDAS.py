@@ -2563,6 +2563,11 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     """
     import time as _vt
 
+    # Garante que o global existe mesmo apos importlib.reload parcial
+    global _VENDOR_MAP_CACHE
+    if '_VENDOR_MAP_CACHE' not in globals() or not isinstance(_VENDOR_MAP_CACHE, dict):
+        _VENDOR_MAP_CACHE = {}
+
     URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
     URL_NF   = 'https://app.omie.com.br/api/v1/produtos/nfconsultar/'
 
