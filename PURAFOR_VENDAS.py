@@ -376,10 +376,12 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
                     continue
                 xml_str = doc.get('cXml', '')
                 n_id_pedido = doc.get('nIdPedido', 0)
+                n_chave = doc.get('nChave', '')
                 if xml_str:
                     itens = _parsear_xml_nfe(xml_str)
                     for item in itens:
                         item['nIdPedido'] = n_id_pedido
+                        item['nChave'] = n_chave
                     registros.extend(itens)
 
         except Exception as e:
@@ -2547,19 +2549,18 @@ atualizar();
 # ──────────────────────────────────────────────
 # MAPA VENDEDOR (Omie: ListarPedidos + ListarVendedores)
 # ──────────────────────────────────────────────
-def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
-                           ids_pedido: set | None = None) -> dict:
+def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     """
-    Retorna {codigo_pedido (int): nome_vendedor (str)}.
+    Retorna {chave_nfe (str, 44 dígitos): nome_vendedor (str)}.
 
-    Estrategia OTIMIZADA:
-      1. ListarVendedores -> {codigo_vend -> nome}           (1 pag ~0.5s)
-      2. ListarPedidos (filtrado por data) -> {codigo_pedido -> nome_vendedor}
-         Para assim que todos os ids_pedido forem encontrados (early-stop).
-      Join via nIdPedido da NF = codigo_pedido do pedido (sem ListarClientes).
+    Estratégia direta via Contas a Receber (Finanças > Comissão de Vendas):
+      1. ListarVendedores      → {codigo_vend → nome}
+      2. ListarContasReceber   → {chave_nfe → nome_vendedor}
+         Filtrado pelo mesmo período das NFs — poucas páginas, mais rápido
+         e 100% preciso: exatamente os dados que o Omie usa para comissão.
     """
     URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
-    URL_PED  = 'https://app.omie.com.br/api/v1/produtos/pedido/'
+    URL_CR   = 'https://app.omie.com.br/api/v1/financas/contareceber/'
 
     # 1. Busca todos os vendedores: {codigo -> nome}
     mapa_vend: dict = {}
@@ -2577,89 +2578,43 @@ def _buscar_mapa_vendedor(data_ini: str = '', data_fim: str = '',
                 break
             pag += 1
         except Exception as e:
-            print(f"  [AVISO] Erro ao buscar vendedores (pag {pag}): {e}")
+            print(f"  [AVISO] Erro ao buscar vendedores (pág {pag}): {e}")
             break
-    print(f"  Vendedores: {len(mapa_vend)} cadastrados na Omie")
+    print(f"  ✔ {len(mapa_vend)} vendedores cadastrados na Omie")
 
-    # 2. Busca pedidos em PARALELO: {codigo_pedido -> nome_vendedor}
-    #    Pag 1 revela total_de_paginas; restante disparado simultaneamente.
-    #    Serial: ~1.5s/pag x 19 pags = ~28s → Paralelo: ~5s (6 workers).
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
-
-    mapa_ped_vend: dict = {}
-    lock = threading.Lock()
-
-    def _ped_param(pag):
-        # SEM filtro de data: pedido pode ter sido criado antes do periodo das NFs.
-        # O early-stop para assim que todos os nIdPedido forem encontrados.
-        return {"pagina": pag, "registros_por_pagina": 100,
-                "apenas_importado_api": "N"}
-
-    def _buscar_pag(pag):
-        # Retorna (total_de_paginas, lista_pedidos) para a pagina pag.
+    # 2. Busca Contas a Receber do período: {chave_nfe -> nome_vendedor}
+    #    A chave_nfe da NF é o vínculo direto — mesma lógica do relatório de comissão.
+    mapa_chave_vend: dict = {}
+    pag = 1
+    while True:
         try:
-            r = requests.post(URL_PED, json={
-                "call": "ListarPedidos", "app_key": OMIE_APP_KEY,
-                "app_secret": OMIE_APP_SECRET,
-                "param": [_ped_param(pag)]
+            r = requests.post(URL_CR, json={
+                'call': 'ListarContasReceber', 'app_key': OMIE_APP_KEY,
+                'app_secret': OMIE_APP_SECRET,
+                'param': [{
+                    'pagina': pag,
+                    'registros_por_pagina': 100,
+                    'filtrar_por_emissao_de':  data_ini,
+                    'filtrar_por_emissao_ate': data_fim,
+                }]
             }, timeout=60).json()
-            return (r.get("total_de_paginas", 1),
-                    r.get("pedido_venda_produto", []))
+            titulos = r.get('conta_receber_cadastro', [])
+            for t in titulos:
+                chave    = t.get('chave_nfe', '')
+                cod_vend = t.get('codigo_vendedor', 0)
+                if chave and cod_vend:
+                    mapa_chave_vend[chave] = mapa_vend.get(
+                        int(cod_vend), f'Vendedor-{cod_vend}')
+            if pag >= r.get('total_de_paginas', 1):
+                break
+            pag += 1
+            _prog(0.44 + min(pag / max(r.get('total_de_paginas', 1), 1), 1.0) * 0.48,
+                  f"Vendedores: pág {pag}/{r.get('total_de_paginas', '?')}...")
         except Exception as e:
-            print(f"  [ERRO] Falha pag {pag} ({type(e).__name__}): {e}")
-            return 1, []
-
-    def _processar(pedidos):
-        # Extrai cod_ped->nome_vendedor e insere em mapa_ped_vend (thread-safe).
-        parcial = {}
-        for p in pedidos:
-            cod_ped  = p.get("cabecalho", {}).get("codigo_pedido")
-            cod_vend = p.get("informacoes_adicionais", {}).get("codVend")
-            if cod_ped and cod_vend:
-                parcial[int(cod_ped)] = mapa_vend.get(
-                    int(cod_vend), "Sem Vendedor")
-        with lock:
-            mapa_ped_vend.update(parcial)
-
-    # Pag 1: descobre total_de_paginas
-    _prog(0.44, "Vendedores: buscando pedidos...")
-    tot_pag, p1 = _buscar_pag(1)
-    _processar(p1)
-    print(f"  Pedidos: {tot_pag} pags no periodo")
-
-    # Pags 2..N em paralelo com lotes de 3 (Omie API limit)
-    # Sem filtro de data para capturar pedidos criados antes do periodo das NFs.
-    # pendentes: nIdPedidos ainda nao encontrados; para ao esgotar ou pag maxima.
-    MAX_PAGS = 100  # limite de seguranca para nao varrer historico infinito
-    pendentes = set(ids_pedido) if ids_pedido else None
-    concluidas = 1  # pag 1 ja processada
-
-    pag_atual = 2
-    while pag_atual <= min(tot_pag, MAX_PAGS):
-        # Submete lote de 3 paginas simultaneamente
-        lote = list(range(pag_atual, min(pag_atual + 3, min(tot_pag, MAX_PAGS) + 1)))
-        pag_atual += len(lote)
-
-        with ThreadPoolExecutor(max_workers=3) as ex:
-            futs = {ex.submit(_buscar_pag, pg): pg for pg in lote}
-            for fut in as_completed(futs):
-                _, peds = fut.result()
-                _processar(peds)
-                concluidas += 1
-                _prog(0.44 + (concluidas / min(tot_pag, MAX_PAGS)) * 0.48,
-                      f"Vendedores: {concluidas}/{tot_pag} pags...")
-                if pendentes is not None:
-                    with lock:
-                        pendentes.difference_update(mapa_ped_vend.keys())
-
-        # Early-stop: todos os pedidos ja foram encontrados
-        if pendentes is not None and len(pendentes) == 0:
-            print(f"  Early-stop: todos os pedidos encontrados ({concluidas}/{tot_pag} pags)")
+            print(f"  [AVISO] Erro ao buscar contas a receber (pág {pag}): {e}")
             break
-
-    print(f"  Pedidos com vendedor: {len(mapa_ped_vend)} no periodo")
-    return mapa_ped_vend
+    print(f"  ✔ {len(mapa_chave_vend)} NFs com vendedor identificado via contas a receber")
+    return mapa_chave_vend
 
 
 # ──────────────────────────────────────────────
@@ -2748,10 +2703,11 @@ def main(
     _prog(0.44, 'Buscando mapa de vendedores...')
     print("\nBuscando mapa de vendedores (Omie API)...")
     try:
-        _ids_ped = set(df['nIdPedido'].dropna().astype(int).unique())
-        mapa_vendedor = _buscar_mapa_vendedor(data_ini=_data_ini, data_fim=_data_fim,
-                                               ids_pedido=_ids_ped)
-        df['Vendedor'] = df['nIdPedido'].map(mapa_vendedor).fillna('Sem Vendedor')
+        mapa_vendedor = _buscar_mapa_vendedor(_data_ini, _data_fim)
+        # 'nChave' pode estar ausente em cache antigo — preenche com '' se faltar
+        if 'nChave' not in df.columns:
+            df['nChave'] = ''
+        df['Vendedor'] = df['nChave'].map(mapa_vendedor).fillna('Sem Vendedor')
         print(f"  ✔ {df['Vendedor'].nunique()} vendedores identificados")
     except Exception as _e_vend:
         print(f'  [AVISO] Erro ao buscar vendedores: {_e_vend}')
