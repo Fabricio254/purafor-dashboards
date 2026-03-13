@@ -2553,20 +2553,43 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     """
     Retorna {chave_nfe (str, 44 dígitos): nome_vendedor (str)}.
 
-    Estratégia direta via Contas a Receber (Finanças > Comissão de Vendas):
-      1. ListarVendedores      → {codigo_vend → nome}
-      2. ListarContasReceber   → {chave_nfe → nome_vendedor}
-         Filtrado pelo mesmo período das NFs — poucas páginas, mais rápido
-         e 100% preciso: exatamente os dados que o Omie usa para comissão.
+    Estratégia via Contas a Receber (mesma fonte do Relatório de Comissão Omie):
+      1. ListarVendedores  → {codigo_vend → nome}
+      2. Para cada vendedor: ListarContasReceber filtrado por periodo+vendedor
+         → {chave_nfe → nome_vendedor}
+    Usar filtro por vendedor mantém cada loop pequeno (< 50 págs) e
+    evita que um rate-limit em uma pag invalide todos os outros vendedores.
     """
+    import time as _time
+
     URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
     URL_CR   = 'https://app.omie.com.br/api/v1/financas/contareceber/'
 
-    # 1. Busca todos os vendedores: {codigo -> nome}
+    def _post_cr(param, tentativas=4):
+        """POST com retry + backoff. Retorna dict da resposta ou {}."""
+        for t in range(tentativas):
+            try:
+                _time.sleep(0.6 + t * 1.5)   # 0.6s, 2.1s, 3.6s, 5.1s
+                r = requests.post(URL_CR, json={
+                    'call': 'ListarContasReceber', 'app_key': OMIE_APP_KEY,
+                    'app_secret': OMIE_APP_SECRET, 'param': [param]
+                }, timeout=60).json()
+                # Detecta erro Omie (rate-limit, token inválido, etc.)
+                if 'faultcode' in r or 'faultstring' in r:
+                    print(f"  [AVISO] Omie erro (tent {t+1}/{tentativas}): "
+                          f"{r.get('faultstring', r.get('faultcode', '?'))[:80]}")
+                    continue
+                return r
+            except Exception as e:
+                print(f"  [AVISO] Erro HTTP (tent {t+1}/{tentativas}): {e}")
+        return {}
+
+    # 1. Busca todos os vendedores: {codigo → nome}
     mapa_vend: dict = {}
     pag = 1
     while True:
         try:
+            _time.sleep(0.6)
             r = requests.post(URL_VEND, json={
                 'call': 'ListarVendedores', 'app_key': OMIE_APP_KEY,
                 'app_secret': OMIE_APP_SECRET,
@@ -2582,38 +2605,36 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
             break
     print(f"  ✔ {len(mapa_vend)} vendedores cadastrados na Omie")
 
-    # 2. Busca Contas a Receber do período: {chave_nfe -> nome_vendedor}
-    #    A chave_nfe da NF é o vínculo direto — mesma lógica do relatório de comissão.
+    # 2. Para cada vendedor: busca suas NFs no período via Contas a Receber
     mapa_chave_vend: dict = {}
-    pag = 1
-    while True:
-        try:
-            r = requests.post(URL_CR, json={
-                'call': 'ListarContasReceber', 'app_key': OMIE_APP_KEY,
-                'app_secret': OMIE_APP_SECRET,
-                'param': [{
-                    'pagina': pag,
-                    'registros_por_pagina': 100,
-                    'filtrar_por_emissao_de':  data_ini,
-                    'filtrar_por_emissao_ate': data_fim,
-                }]
-            }, timeout=60).json()
+    total_vends = len(mapa_vend)
+    for idx_v, (cod_vend, nome_vend) in enumerate(mapa_vend.items()):
+        _prog(0.44 + (idx_v / max(total_vends, 1)) * 0.40,
+              f"Vendedores: {nome_vend} ({idx_v+1}/{total_vends})...")
+        pag = 1
+        while True:
+            r = _post_cr({
+                'pagina': pag,
+                'registros_por_pagina': 100,
+                'filtrar_por_vendedor':    cod_vend,
+                'filtrar_por_emissao_de':  data_ini,
+                'filtrar_por_emissao_ate': data_fim,
+            })
+            if not r:
+                print(f"  [AVISO] Falha ao buscar {nome_vend} pág {pag} — pulando")
+                break
             titulos = r.get('conta_receber_cadastro', [])
             for t in titulos:
-                chave    = t.get('chave_nfe', '')
-                cod_vend = t.get('codigo_vendedor', 0)
-                if chave and cod_vend:
-                    mapa_chave_vend[chave] = mapa_vend.get(
-                        int(cod_vend), f'Vendedor-{cod_vend}')
-            if pag >= r.get('total_de_paginas', 1):
+                chave = t.get('chave_nfe', '')
+                if chave:
+                    mapa_chave_vend[chave] = nome_vend
+            tot_pags = r.get('total_de_paginas', 1)
+            if pag >= tot_pags:
                 break
             pag += 1
-            _prog(0.44 + min(pag / max(r.get('total_de_paginas', 1), 1), 1.0) * 0.48,
-                  f"Vendedores: pág {pag}/{r.get('total_de_paginas', '?')}...")
-        except Exception as e:
-            print(f"  [AVISO] Erro ao buscar contas a receber (pág {pag}): {e}")
-            break
-    print(f"  ✔ {len(mapa_chave_vend)} NFs com vendedor identificado via contas a receber")
+        print(f"    {nome_vend}: {pag} pág(s) — {len(mapa_chave_vend)} NFs mapeadas")
+
+    print(f"  ✔ {len(mapa_chave_vend)} NFs com vendedor identificado via Contas a Receber")
     return mapa_chave_vend
 
 
