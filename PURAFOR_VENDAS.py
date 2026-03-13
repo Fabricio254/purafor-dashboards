@@ -2608,7 +2608,7 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
             r = requests.post(URL_VEND, json={
                 'call': 'ListarVendedores', 'app_key': OMIE_APP_KEY,
                 'app_secret': OMIE_APP_SECRET,
-                'param': [{'pagina': pag, 'registros_por_pagina': 100}]
+                'param': [{'pagina': pag, 'registros_por_pagina': 500}]  # máximo Omie
             }, timeout=30).json()
             for v in r.get('cadastro', []):
                 mapa_vend[v['codigo']] = v['nome']
