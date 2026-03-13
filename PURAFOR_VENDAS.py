@@ -2551,35 +2551,35 @@ atualizar();
 # ──────────────────────────────────────────────
 def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     """
-    Retorna {chave_nfe (str, 44 digits): nome_vendedor (str)}.
+    Retorna {cChaveNFe (str, 44 digitos): nome_vendedor (str)}.
 
-    Usa ListarContasReceber com filtro de data (sem loop por vendedor).
-    Para Jan-Mar 2026: 1101 titles / 11 pages ~= 22s com sleep de 2s/pag.
+    Estrategia direta via NFConsultar (Vendas e NF-e):
+      1. ListarVendedores  -> {codigo -> nome}
+      2. ListarNF (cDetalhesPedido="S") -> {cChaveNFe -> nome_vendedor}
+         Usa pedido.nIdVendedor -- campo nativo da NF, sem precisar de CR.
+         Fallback: titulos[0].nCodVendedor se nIdVendedor ausente.
 
-    Cache de modulo: se o mesmo periodo for pedido dentro de 3 horas,
-    retorna o resultado ja calculado sem chamar a API novamente.
+    Cache de modulo: 3 horas.
     """
-    import time as _time
-
-    # ── Cache de modulo ────────────────────────────────────────────
-    _cache_key = f"{data_ini}|{data_fim}"
-    _cached    = _VENDOR_MAP_CACHE.get(_cache_key)
-    if _cached is not None:
-        ts, resultado = _cached
-        if _time.time() - ts < 10800:          # 3 horas
-            print(f"  ✔ Mapa de vendedores do cache ({len(resultado)} NFs)")
-            return resultado
-    # ──────────────────────────────────────────────────────────────
+    import time as _vt
 
     URL_VEND = 'https://app.omie.com.br/api/v1/geral/vendedores/'
-    URL_CR   = 'https://app.omie.com.br/api/v1/financas/contareceber/'
+    URL_NF   = 'https://app.omie.com.br/api/v1/produtos/nfconsultar/'
 
-    # 1. Busca vendedores: {codigo → nome}
+    # Cache de modulo (3 horas)
+    _cache_key = f"{data_ini}|{data_fim}"
+    _cached = _VENDOR_MAP_CACHE.get(_cache_key)
+    if _cached is not None:
+        ts, resultado = _cached
+        if _vt.time() - ts < 10800:
+            print(f"  \u2714 Mapa de vendedores do cache ({len(resultado)} entradas)")
+            return resultado
+
+    # 1. Busca todos os vendedores: {codigo -> nome}
     mapa_vend: dict = {}
     pag = 1
     while True:
         try:
-            _time.sleep(1)
             r = requests.post(URL_VEND, json={
                 'call': 'ListarVendedores', 'app_key': OMIE_APP_KEY,
                 'app_secret': OMIE_APP_SECRET,
@@ -2591,61 +2591,60 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
                 break
             pag += 1
         except Exception as e:
-            print(f"  [AVISO] Erro ListarVendedores pag {pag}: {e}")
+            print(f"  [AVISO] Erro ao buscar vendedores (pag {pag}): {e}")
             break
-    print(f"  ✔ {len(mapa_vend)} vendedores")
+    print(f"  \u2714 {len(mapa_vend)} vendedores cadastrados na Omie")
 
-    # 2. ListarContasReceber global (so filtro de data) → {chave_nfe → nome}
-    #    Para o periodo tipico: ~11 paginas. Sleep 2s entre paginas evita lock.
+    # 2. ListarNF filtrado por data de emissao: {cChaveNFe -> nome_vendedor}
+    #    pedido.nIdVendedor e campo nativo da NF -- direto, sem chaining por CR.
     mapa_chave_vend: dict = {}
     pag = 1
     while True:
-        r = None
-        for tentativa in range(5):
-            espera = 2 + tentativa * 8   # 2s, 10s, 18s, 26s, 34s
-            try:
-                _time.sleep(espera)
-                resp = requests.post(URL_CR, json={
-                    'call': 'ListarContasReceber', 'app_key': OMIE_APP_KEY,
-                    'app_secret': OMIE_APP_SECRET,
-                    'param': [{
-                        'pagina': pag,
-                        'registros_por_pagina': 100,
-                        'filtrar_por_emissao_de':  data_ini,
-                        'filtrar_por_emissao_ate': data_fim,
-                    }]
-                }, timeout=90).json()
-                if 'faultcode' in resp or 'faultstring' in resp:
-                    msg = resp.get('faultstring', resp.get('faultcode', '?'))[:80]
-                    prox = 2 + (tentativa + 1) * 8
-                    print(f"  [AVISO] CR pag {pag} tent {tentativa+1}/5: {msg} (prox {prox}s)")
-                    continue
-                r = resp
+        _vt.sleep(1)  # respeita rate limit Omie
+        try:
+            r = requests.post(URL_NF, json={
+                'call': 'ListarNF', 'app_key': OMIE_APP_KEY,
+                'app_secret': OMIE_APP_SECRET,
+                'param': [{
+                    'pagina':              pag,
+                    'registros_por_pagina': 50,
+                    'dEmiInicial':         data_ini,
+                    'dEmiFinal':           data_fim,
+                    'tpNF':                '1',   # apenas saida (vendas)
+                    'cDetalhesPedido':     'S',   # inclui pedido.nIdVendedor
+                }]
+            }, timeout=60).json()
+
+            if 'faultstring' in r or 'faultcode' in r:
+                print(f"  [AVISO] Omie erro ListarNF pag {pag}: {r.get('faultstring', r)}")
                 break
-            except Exception as e:
-                print(f"  [AVISO] Erro HTTP CR pag {pag} tent {tentativa+1}: {e}")
-        if r is None:
-            print(f"  [AVISO] CR pag {pag}: falha apos 5 tentativas — interrompendo")
-            break
-        titulos   = r.get('conta_receber_cadastro', [])
-        tot_pags  = r.get('total_de_paginas', 1)
-        for t in titulos:
-            chave    = t.get('chave_nfe', '')
-            cod_vend = t.get('codigo_vendedor', 0)
-            if chave and cod_vend:
-                mapa_chave_vend[chave] = mapa_vend.get(int(cod_vend), f'Vendedor-{cod_vend}')
-        _prog(0.44 + min(pag / max(tot_pags, 1), 1.0) * 0.48,
-              f"Vendedores CR: pag {pag}/{tot_pags}...")
-        if pag >= tot_pags:
-            break
-        pag += 1
 
-    print(f"  ✔ {len(mapa_chave_vend)} NFs com vendedor via Contas a Receber")
+            nfs = r.get('nfCadastro', [])
+            for nf in nfs:
+                chave    = (nf.get('compl') or {}).get('cChaveNFe', '')
+                nid_vend = (nf.get('pedido') or {}).get('nIdVendedor', 0)
+                # fallback: primeiro titulo da NF
+                if not nid_vend:
+                    titulos = nf.get('titulos', []) or []
+                    if titulos:
+                        nid_vend = titulos[0].get('nCodVendedor', 0)
+                if chave and nid_vend:
+                    mapa_chave_vend[chave] = mapa_vend.get(
+                        int(nid_vend), f'Vendedor-{nid_vend}')
 
-    # Salva no cache de modulo
-    import time as _tm
-    _VENDOR_MAP_CACHE[_cache_key] = (_tm.time(), mapa_chave_vend)
+            total_pag = r.get('total_de_paginas', 1)
+            print(f"  NF pag {pag}/{total_pag}: {len(nfs)} NFs processadas")
+            if pag >= total_pag:
+                break
+            pag += 1
+        except Exception as e:
+            print(f"  [AVISO] Erro ao buscar NFs (pag {pag}): {e}")
+            break
+
+    print(f"  \u2714 {len(mapa_chave_vend)} NFs com vendedor identificado via ListarNF")
+    _VENDOR_MAP_CACHE[_cache_key] = (_vt.time(), mapa_chave_vend)
     return mapa_chave_vend
+
 
 # ──────────────────────────────────────────────
 # MAIN
@@ -2737,8 +2736,21 @@ def main(
         # 'nChave' pode estar ausente em cache antigo — preenche com '' se faltar
         if 'nChave' not in df.columns:
             df['nChave'] = ''
+        n_com_chave = int((df['nChave'] != '').sum())
+        print(f"  Diagnostico JOIN: {len(df)} itens | {n_com_chave} com nChave | "
+              f"{len(mapa_vendedor)} entradas no mapa ListarNF")
+        if n_com_chave == 0:
+            print("  [AVISO] nChave vazio em TODOS os itens -- cache antigo?")
+        if len(mapa_vendedor) == 0:
+            print("  [AVISO] Mapa VAZIO -- ListarNF nao retornou dados")
+        sample = df.loc[df['nChave'] != '', 'nChave'].head(3).tolist()
+        for ch in sample:
+            res = mapa_vendedor.get(ch, 'NAO ENCONTRADO')
+            print(f"    nChave={ch[:22]}... -> {res}")
         df['Vendedor'] = df['nChave'].map(mapa_vendedor).fillna('Sem Vendedor')
-        print(f"  ✔ {df['Vendedor'].nunique()} vendedores identificados")
+        n_vend = int((df['Vendedor'] != 'Sem Vendedor').sum())
+        print(f"  {df['Vendedor'].nunique()} vendedores | {n_vend}/{len(df)} "
+              f"com vendedor ({100 * n_vend / max(len(df), 1):.1f}%)")
     except Exception as _e_vend:
         print(f'  [AVISO] Erro ao buscar vendedores: {_e_vend}')
         df['Vendedor'] = 'Sem Vendedor'
