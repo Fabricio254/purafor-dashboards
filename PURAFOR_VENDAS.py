@@ -1567,11 +1567,71 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   #modalTabela td.cod{{font-family:monospace;font-size:12px;color:#64748b;}}
   .modal-footer{{padding:12px 20px;border-top:1px solid #e2e8f0;font-size:12px;
     color:#718096;display:flex;justify-content:space-between;align-items:center;}}
+  /* ── DARK MODE ── */
+  #btn-theme{{position:fixed;bottom:24px;right:24px;z-index:10000;
+    width:48px;height:48px;border-radius:50%;border:2px solid rgba(255,255,255,.18);
+    cursor:pointer;font-size:21px;box-shadow:0 4px 18px rgba(0,0,0,.35);
+    background:#334155;color:#f1f5f9;transition:all .2s;
+    display:flex;align-items:center;justify-content:center;line-height:1;}}
+  #btn-theme:hover{{transform:scale(1.12);box-shadow:0 6px 24px rgba(0,0,0,.5);}}
+  body[data-theme="dark"]{{background:#0f172a;color:#e2e8f0;}}
+  body[data-theme="dark"] .filter-bar{{background:#1e293b;border-color:#334155;box-shadow:0 1px 4px rgba(0,0,0,.4);}}
+  body[data-theme="dark"] .filter-group label{{color:#94a3b8;}}
+  body[data-theme="dark"] .filter-group input,
+  body[data-theme="dark"] .filter-group select{{background:#0f172a;color:#e2e8f0;border-color:#475569;}}
+  body[data-theme="dark"] .filter-group input:focus,
+  body[data-theme="dark"] .filter-group select:focus{{background:#1e293b;border-color:#64748b;}}
+  body[data-theme="dark"] .filter-sep{{background:#334155;}}
+  body[data-theme="dark"] .btn-clear{{background:#334155;color:#cbd5e0;}}
+  body[data-theme="dark"] .btn-clear:hover{{background:#475569;}}
+  body[data-theme="dark"] .btn-apply{{background:#3b82f6;}}
+  body[data-theme="dark"] .filter-info{{color:#34d399;}}
+  body[data-theme="dark"] .section-title{{color:#94a3b8;border-color:#64748b;}}
+  body[data-theme="dark"] .kpi-card{{background:#1e293b;box-shadow:0 2px 8px rgba(0,0,0,.5);}}
+  body[data-theme="dark"] .kpi-label{{color:#94a3b8;}}
+  body[data-theme="dark"] .kpi-value{{color:#f1f5f9;}}
+  body[data-theme="dark"] .chart-card{{background:#1e293b;box-shadow:0 2px 8px rgba(0,0,0,.4);}}
+  body[data-theme="dark"] .chart-card h3{{color:#94a3b8;}}
+  body[data-theme="dark"] .canal-card{{background:#1e293b;box-shadow:0 2px 8px rgba(0,0,0,.4);}}
+  body[data-theme="dark"] .canal-card h3{{color:#94a3b8;}}
+  body[data-theme="dark"] .canal-kpi-card{{background:#1e293b;box-shadow:0 2px 12px rgba(0,0,0,.5);}}
+  body[data-theme="dark"] .canal-kpi-metric .m-label{{color:#94a3b8;}}
+  body[data-theme="dark"] .canal-kpi-metric .m-value{{color:#f1f5f9;}}
+  body[data-theme="dark"] .canal-kpi-share{{border-color:#334155;}}
+  body[data-theme="dark"] .share-bar-wrap{{background:#334155;}}
+  body[data-theme="dark"] .share-label{{color:#94a3b8;}}
+  body[data-theme="dark"] .dev-row{{border-color:#334155;}}
+  body[data-theme="dark"] .canal-filter span{{color:#94a3b8;}}
+  body[data-theme="dark"] .canal-toggle:not([class*="ativo-"]){{background:#1e293b;border-color:#475569;color:#94a3b8;}}
+  body[data-theme="dark"] #tblCanal td{{border-color:#334155;color:#e2e8f0;}}
+  body[data-theme="dark"] #tblCanal tbody tr:hover{{background:#334155;}}
+  body[data-theme="dark"] .sub-label{{color:#94a3b8;}}
+  body[data-theme="dark"] .grupo-label{{background:#1a2f1f;color:#86efac;}}
+  body[data-theme="dark"] .grupo-purafor td.grupo-label{{background:#1e3566;color:#93c5fd;}}
+  body[data-theme="dark"] .grupo-reavita td.grupo-label{{background:#1a3a2a;color:#6ee7b7;}}
+  body[data-theme="dark"] .grupo-terc td.grupo-label{{background:#3a2800;color:#fcd34d;}}
+  body[data-theme="dark"] .modal-box{{background:#1e293b;}}
+  body[data-theme="dark"] .modal-search{{border-color:#334155;background:#1e293b;}}
+  body[data-theme="dark"] .modal-search input{{background:#0f172a;color:#e2e8f0;border-color:#475569;}}
+  body[data-theme="dark"] .modal-search input:focus{{border-color:#64748b;}}
+  body[data-theme="dark"] .modal-body{{background:#1e293b;}}
+  body[data-theme="dark"] #modalTabela thead th{{background:#0f172a;color:#94a3b8;border-color:#334155;}}
+  body[data-theme="dark"] #modalTabela thead th:hover{{background:#1e293b;}}
+  body[data-theme="dark"] #modalTabela tbody td{{color:#e2e8f0;border-color:#334155;}}
+  body[data-theme="dark"] #modalTabela tbody tr:hover{{background:#334155;}}
+  body[data-theme="dark"] .modal-footer{{border-color:#334155;color:#94a3b8;background:#1e293b;}}
+  body[data-theme="dark"] .footer{{background:#1e293b;border-color:#334155;}}
+  body[data-theme="dark"] .footer-dev{{color:#64748b;}}
+  body[data-theme="dark"] .footer-dev strong{{color:#94a3b8;}}
+  body[data-theme="dark"] .footer-gen{{color:#475569;}}
+  body[data-theme="dark"] .footer-sep{{background:#334155;}}
+  body[data-theme="dark"] #btn-theme{{background:#e2e8f0;color:#1e293b;border-color:rgba(0,0,0,.18);}}
 
 </style>
 </head>
 <body>
-
+<!-- BOTÃO DARK MODE -->
+<button id="btn-theme" onclick="toggleTheme()" title="Alternar modo claro/escuro">🌙</button>
 
 <!-- TOPBAR -->
 <div class="topbar">
@@ -2596,6 +2656,44 @@ function limparFiltros() {{
 // ── Inicializa ──────────────────────────────────────
 dadosFiltrados    = DADOS;
 atualizar();
+// ── DARK MODE ─────────────────────────────────────
+function toggleTheme() {{
+  const body = document.body;
+  const isDark = body.getAttribute('data-theme') === 'dark';
+  const next = isDark ? 'light' : 'dark';
+  body.setAttribute('data-theme', next);
+  document.getElementById('btn-theme').textContent = isDark ? '\u{1F319}' : '\u2600\uFE0F';
+  try {{ localStorage.setItem('purafor-theme', next); }} catch(e) {{}}
+  const gridColor  = next === 'dark' ? '#334155' : '#e2e8f0';
+  const labelColor = next === 'dark' ? '#94a3b8' : '#4a5568';
+  Chart.defaults.color = labelColor;
+  Chart.defaults.borderColor = gridColor;
+  Object.values(Chart.instances).forEach(ch => {{
+    if (ch.options.scales) {{
+      Object.values(ch.options.scales).forEach(sc => {{
+        if (sc.grid)  sc.grid.color  = gridColor;
+        if (sc.ticks) sc.ticks.color = labelColor;
+      }});
+    }}
+    if (ch.options.plugins && ch.options.plugins.legend)
+      ch.options.plugins.legend.labels.color = labelColor;
+    ch.update();
+  }});
+}}
+
+document.addEventListener('DOMContentLoaded', () => {{
+  const pg = document.getElementById('pg-inp');
+  if (pg) pg.focus();
+  try {{
+    const saved = localStorage.getItem('purafor-theme');
+    if (saved === 'dark') {{
+      document.body.setAttribute('data-theme', 'dark');
+      const btn = document.getElementById('btn-theme');
+      if (btn) btn.textContent = '\u2600\uFE0F';
+    }}
+  }} catch(e) {{}}
+}});
+
 </script>
 </body>
 </html>"""
