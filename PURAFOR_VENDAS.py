@@ -1451,6 +1451,7 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   .canal-toggle.ativo-PURAFOR{{background:#2563eb;border-color:#2563eb;color:#fff;}}
   .canal-toggle.ativo-REAVITA{{background:#059669;border-color:#059669;color:#fff;}}
   .canal-toggle.ativo-TERCEIRIZADO{{background:#d97706;border-color:#d97706;color:#fff;}}
+  .canal-toggle.ativo-OUTROS{{background:#6366f1;border-color:#6366f1;color:#fff;}}
   .canal-toggle:not([class*="ativo-"]){{color:#4a5568;}}
   #tblCanal{{width:100%;border-collapse:collapse;font-size:13px;}}
   #tblCanal th{{background:#3a7d44;color:#fff;padding:9px 14px;text-align:center;
@@ -1472,7 +1473,8 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   @media(max-width:900px){{.resumo-grid{{grid-template-columns:repeat(2,1fr);}}}}
 
   /* ── CANAL KPI CARDS ── */
-  .canal-kpi-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-bottom:28px;}}
+  .canal-kpi-grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;margin-bottom:28px;}}
+  @media(max-width:1200px){{.canal-kpi-grid{{grid-template-columns:repeat(2,1fr);}}}}
   @media(max-width:900px){{.canal-kpi-grid{{grid-template-columns:1fr;}}}}
   .canal-kpi-card{{background:#fff;border-radius:12px;padding:22px 20px;
     box-shadow:0 2px 8px rgba(0,0,0,.12);position:relative;overflow:hidden;}}
@@ -1480,11 +1482,13 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   .canal-kpi-card.purafor::before{{background:#2563eb;}}
   .canal-kpi-card.reavita::before{{background:#059669;}}
   .canal-kpi-card.terc::before{{background:#d97706;}}
+  .canal-kpi-card.outros::before{{background:#6366f1;}}
   .canal-kpi-title{{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;
     padding:4px 12px;border-radius:20px;display:inline-block;margin-bottom:16px;}}
   .canal-kpi-card.purafor .canal-kpi-title{{background:#dbeafe;color:#1d4ed8;}}
   .canal-kpi-card.reavita .canal-kpi-title{{background:#d1fae5;color:#065f46;}}
   .canal-kpi-card.terc    .canal-kpi-title{{background:#fef3c7;color:#92400e;}}
+  .canal-kpi-card.outros  .canal-kpi-title{{background:#ede9fe;color:#4c1d95;}}
   .canal-kpi-metrics{{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:4px;}}
   .ck-fat-row{{grid-column:span 2;}}
   .canal-kpi-metric .m-label{{font-size:10px;color:#718096;text-transform:uppercase;font-weight:600;margin-bottom:4px;}}
@@ -1524,6 +1528,8 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   .reavita .btn-ver-prod:hover{{background:#059669;color:#fff;}}
   .terc    .btn-ver-prod{{background:#fef3c7;color:#92400e;}}
   .terc    .btn-ver-prod:hover{{background:#d97706;color:#fff;}}
+  .outros  .btn-ver-prod{{background:#ede9fe;color:#4c1d95;}}
+  .outros  .btn-ver-prod:hover{{background:#6366f1;color:#fff;}}
 
   /* ── MODAL ── */
   .modal-overlay{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);
@@ -1641,6 +1647,9 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
     <label class="canal-toggle ativo-TERCEIRIZADO" id="lbl-TERCEIRIZADO" onclick="toggleCanal('TERCEIRIZADO',this)">
       <input type="checkbox" id="chk-TERCEIRIZADO" checked/> ● TERCEIRIZADO
     </label>
+    <label class="canal-toggle ativo-OUTROS" id="lbl-OUTROS" onclick="toggleCanal('OUTROS',this)">
+      <input type="checkbox" id="chk-OUTROS" checked/> ● OUTROS
+    </label>
   </div>
   <div class="canal-kpi-grid">
 
@@ -1739,6 +1748,38 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
         <span class="share-pct" style="color:#d97706" id="ck-share-TERCEIRIZADO">—</span>
       </div>
       <button class="btn-ver-prod" onclick="abrirModalProdutos('TERCEIRIZADO')">&#128269; Ver Produtos</button>
+    </div>
+
+    <div class="canal-kpi-card outros">
+      <div class="canal-kpi-title">● OUTROS</div>
+      <div class="canal-kpi-metrics">
+        <div class="canal-kpi-metric ck-fat-row">
+          <div class="m-label">💰 Faturamento Líquido</div>
+          <div class="m-value fat" id="ck-fat-OUTROS">—</div>
+        </div>
+        <div class="canal-kpi-metric">
+          <div class="m-label">📦 Quantidade</div>
+          <div class="m-value" id="ck-qtd-OUTROS">—</div>
+        </div>
+        <div class="canal-kpi-metric">
+          <div class="m-label">💲 Preço Médio</div>
+          <div class="m-value" id="ck-pm-OUTROS">—</div>
+        </div>
+        <div class="canal-kpi-metric">
+          <div class="m-label">🧾 NFs</div>
+          <div class="m-value" id="ck-nfs-OUTROS">—</div>
+        </div>
+        <div class="canal-kpi-metric">
+          <div class="m-label">👥 Clientes</div>
+          <div class="m-value" id="ck-cli-OUTROS">—</div>
+        </div>
+      </div>
+      <div class="canal-kpi-share">
+        <span class="share-label">% do Total</span>
+        <div class="share-bar-wrap"><div class="share-bar" id="ck-bar-OUTROS"></div></div>
+        <span class="share-pct" style="color:#6366f1" id="ck-share-OUTROS">—</span>
+      </div>
+      <button class="btn-ver-prod" onclick="abrirModalProdutos('OUTROS')">&#128269; Ver Produtos</button>
     </div>
 
   </div>
@@ -1908,12 +1949,12 @@ function canalDeRow(r) {{
   if (m === 'PURAFOR') return 'PURAFOR';
   if (m === 'REAVITA')          return 'REAVITA';
   if (f === 'terceirizado')     return 'TERCEIRIZADO';
-  return null;
+  return 'OUTROS';
 }}
 
 function agruparCanal(rows) {{
   // Retorna {{canal: {{ym: {{liq, qtd}}}}}}
-  const canais = ['TOTAL','PURAFOR','REAVITA','TERCEIRIZADO'];
+  const canais = ['TOTAL','PURAFOR','REAVITA','TERCEIRIZADO','OUTROS'];
   const dados = {{}};
   const meses = new Set();
   canais.forEach(c => dados[c] = {{}});
@@ -1926,21 +1967,20 @@ function agruparCanal(rows) {{
     dados.TOTAL[ym].qtd += r.qtd;
     // Canal
     const c = canalDeRow(r);
-    if (c) {{
-      if (!dados[c][ym]) dados[c][ym] = {{liq:0,qtd:0}};
-      dados[c][ym].liq += r.liq;
-      dados[c][ym].qtd += r.qtd;
-    }}
+    if (!dados[c]) dados[c] = {{}};
+    if (!dados[c][ym]) dados[c][ym] = {{liq:0,qtd:0}};
+    dados[c][ym].liq += r.liq;
+    dados[c][ym].qtd += r.qtd;
   }});
   return {{dados, meses: [...meses].sort()}};
 }}
 
 const CANAL_CORES = {{
-  'TOTAL':'#3a7d44','PURAFOR':'#2563eb','REAVITA':'#059669','TERCEIRIZADO':'#d97706'
+  'TOTAL':'#3a7d44','PURAFOR':'#2563eb','REAVITA':'#059669','TERCEIRIZADO':'#d97706','OUTROS':'#6366f1'
 }};
 
 function canaisAtivos() {{
-  return ['PURAFOR','REAVITA','TERCEIRIZADO'].filter(c =>
+  return ['PURAFOR','REAVITA','TERCEIRIZADO','OUTROS'].filter(c =>
     document.getElementById('chk-'+c) && document.getElementById('chk-'+c).checked
   );
 }}
@@ -2352,7 +2392,7 @@ function atualizarKPIs(rows) {{
 // ═══════════════════════════════════════════════════
 function renderCanalKPIs(rows) {{
   const totLiq = rows.reduce((s,r)=>s+r.liq,0);
-  ['PURAFOR','REAVITA','TERCEIRIZADO'].forEach(canal => {{
+  ['PURAFOR','REAVITA','TERCEIRIZADO','OUTROS'].forEach(canal => {{
     const rC  = rows.filter(r => canalDeRow(r) === canal);
     const liq = rC.reduce((s,r)=>s+r.liq,0);
     const qtd = rC.reduce((s,r)=>s+r.qtd,0);
