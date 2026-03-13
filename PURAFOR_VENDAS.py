@@ -2647,6 +2647,11 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     _VENDOR_MAP_CACHE[_cache_key] = (_tm.time(), mapa_chave_vend)
     return mapa_chave_vend
 
+# ──────────────────────────────────────────────
+# MAIN
+# ──────────────────────────────────────────────
+_EXCEL_DEFAULT = object()  # sentinel
+
 def main(
     saida_html:  str | None = None,
     saida_excel = _EXCEL_DEFAULT,
