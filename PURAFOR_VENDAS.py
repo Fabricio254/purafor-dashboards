@@ -2332,14 +2332,13 @@ function filtrar() {{
 //  KPIs GERAIS — só PURAFOR + REAVITA + TERCEIRIZADO
 // ═══════════════════════════════════════════════════
 function atualizarKPIs(rows) {{
-  // filtrar apenas os canais ativos nos toggles
-  const ativos = canaisAtivos();
-  const canal = rows.filter(r => ativos.includes(canalDeRow(r)));
-  const qtd      = canal.reduce((s,r)=>s+r.qtd,0);
-  const clientes = new Set(canal.map(r=>r.cliente)).size;
-  const bruto = canal.reduce((s,r)=>s+r.bruto,0);
-  const desc  = canal.reduce((s,r)=>s+r.desc,0);
-  const liq   = canal.reduce((s,r)=>s+r.liq,0);
+  // KPIs gerais: usa TODOS os itens (inclusive sem canal cadastrado)
+  // Os cards por canal (PURAFOR/REAVITA/TERCEIRIZADO) filtram individualmente
+  const qtd      = rows.reduce((s,r)=>s+r.qtd,0);
+  const clientes = new Set(rows.map(r=>r.cliente)).size;
+  const bruto = rows.reduce((s,r)=>s+r.bruto,0);
+  const desc  = rows.reduce((s,r)=>s+r.desc,0);
+  const liq   = rows.reduce((s,r)=>s+r.liq,0);
   const perc  = bruto ? (desc/bruto*100) : 0;
 
   document.getElementById('kQtd').textContent     = NUM(Math.round(qtd));

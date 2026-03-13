@@ -165,7 +165,9 @@ if pagina == "purafor_vendas":
             pv = sys.modules["PURAFOR_VENDAS"]
             # Preserva cache de vendedores antes do reload
             _vendor_cache = getattr(pv, "_VENDOR_MAP_CACHE", {})
-            _mem_vendas   = getattr(pv, "_MEM_VENDAS", None)
+            # _MEM_VENDAS: preserva apenas se NÃO veio de "Atualizar Dados"
+            # (ao clicar Atualizar, força fresh fetch para garantir dados atuais)
+            _mem_vendas = None if btn_atualizar else getattr(pv, "_MEM_VENDAS", None)
             importlib.reload(pv)
             # Restaura caches (evita refetch de vendedores dentro da sessão)
             pv._VENDOR_MAP_CACHE = _vendor_cache
