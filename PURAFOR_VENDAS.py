@@ -1,4 +1,4 @@
-﻿"""
+"""
 Relatório de Análise de Vendas por Produto
 Empresa: PURAFOR
 Lê todos os XMLs de NF-e da pasta e gera um relatório Excel
@@ -458,7 +458,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     d_fim = datetime.strptime(data_fim, _DT_FMT)
 
     _cache_dir  = _CACHE_DIR
-    _cache_path = os.path.join(_cache_dir, 'vendas_full.json')
+    _cache_path = os.path.join(_cache_dir, 'vendas_v3.json')  # v3: re-fetch com nChave
 
     all_cached: list[dict] = []
     cache_earliest: datetime | None = None
@@ -2808,3 +2808,4 @@ def main(
 
 if __name__ == "__main__":
     main()
+
