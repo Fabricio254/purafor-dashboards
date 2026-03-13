@@ -241,9 +241,17 @@ if pagina == "purafor_vendas":
             st.session_state[TIME_KEY]   = datetime.now(_BRT).strftime(
                 "%d/%m/%Y às %H:%M:%S"
             )
-            _prog_bar.progress(1.0, text="✅ Concluído!")
-            _prog_status.empty()
-            log_container.success("✅ Dashboard gerado com sucesso!")
+            # Salva log no session_state antes do rerun (buf some após rerun)
+            _log_txt = log_buf.getvalue()
+            if _log_txt.strip():
+                st.session_state["purafor_log"] = _log_txt
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            # Rerun limpo: garante que components.html renderiza sem ruído dos
+            # widgets de progresso criados neste pass
+            st.rerun()
         else:
             st.session_state[STATUS_KEY] = "erro"
             log_container.error(
@@ -255,7 +263,7 @@ if pagina == "purafor_vendas":
         except Exception:
             pass
 
-        # Mostra log do console em expander
+        # Mostra log do console em expander (só chega aqui em caso de erro)
         log_txt = log_buf.getvalue()
         if log_txt.strip():
             with st.expander("📋 Log de execução", expanded=False):
@@ -268,12 +276,19 @@ if pagina == "purafor_vendas":
                 f"🕐 Gerado em: {st.session_state.get(TIME_KEY, '')}  |  "
                 f"📅 Período: {st.session_state.get(PERIOD_KEY,'').replace('_',' a ')}"
             )
+        st.success("✅ Dashboard gerado com sucesso!")
 
         components.html(
             st.session_state[HTML_KEY],
-            height=900,
+            height=950,
             scrolling=True,
         )
+
+        # Log salvo antes do rerun
+        _log_saved = st.session_state.get("purafor_log", "")
+        if _log_saved.strip():
+            with st.expander("📋 Log de execução", expanded=False):
+                st.code(_log_saved, language=None)
 
     elif HTML_KEY not in st.session_state:
         st.info(
