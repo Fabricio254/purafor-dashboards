@@ -2723,8 +2723,10 @@ function toggleTheme() {{
         if (sc.ticks) sc.ticks.color = labelColor;
       }});
     }}
-    if (ch.options.plugins && ch.options.plugins.legend)
+    if (ch.options.plugins && ch.options.plugins.legend) {{
+      if (!ch.options.plugins.legend.labels) ch.options.plugins.legend.labels = {{}};
       ch.options.plugins.legend.labels.color = labelColor;
+    }}
     ch.update();
   }});
 }}
@@ -2738,6 +2740,24 @@ document.addEventListener('DOMContentLoaded', () => {{
       document.body.setAttribute('data-theme', 'dark');
       const btn = document.getElementById('btn-theme');
       if (btn) btn.textContent = '\u2600\uFE0F';
+      // Apply chart colors for dark mode on page load
+      const gridColor  = '#334155';
+      const labelColor = '#94a3b8';
+      Chart.defaults.color       = labelColor;
+      Chart.defaults.borderColor = gridColor;
+      Object.values(Chart.instances).forEach(ch => {{
+        if (ch.options.scales) {{
+          Object.values(ch.options.scales).forEach(sc => {{
+            if (sc.grid)  sc.grid.color  = gridColor;
+            if (sc.ticks) sc.ticks.color = labelColor;
+          }});
+        }}
+        if (ch.options.plugins && ch.options.plugins.legend) {{
+          if (!ch.options.plugins.legend.labels) ch.options.plugins.legend.labels = {{}};
+          ch.options.plugins.legend.labels.color = labelColor;
+        }}
+        ch.update('none');
+      }});
     }}
   }} catch(e) {{}}
 }});
