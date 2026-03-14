@@ -240,6 +240,10 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
     if infnfe is None:
         return registros
 
+    # Extrai chave NF-e do atributo Id (ex: "NFe35160012..." -> 44 digitos)
+    _id_attr = infnfe.get('Id', '')
+    ch_nfe = _id_attr[3:] if _id_attr.startswith('NFe') and len(_id_attr) >= 47 else _id_attr
+
     ide = infnfe.find(f"{{{NS}}}ide")
     if ide is None:
         return registros
@@ -296,6 +300,7 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
         registros.append({
             "NF":           num_nf,
             "Série":        serie,
+            "chNFe":        ch_nfe,
             "Data Emissão": data_emissao,
             "Emitente":     emitente,
             "Cliente":      cliente,
@@ -360,7 +365,9 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
                 itens = _parsear_xml_nfe(xml_str)
                 for item in itens:
                     item['nIdPedido'] = n_id_pedido
-                    item['nChave'] = n_chave
+                    # Prefere chNFe extraido do XML (garantidamente 44 digitos)
+                    # Fallback para nChave da API (pode ser ID interno Omie)
+                    item['nChave'] = item.get('chNFe') or n_chave
                 itens_pag.extend(itens)
         return itens_pag
 
@@ -2797,7 +2804,7 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     URL_NF   = 'https://app.omie.com.br/api/v1/produtos/nfconsultar/'
 
     # Cache de modulo (3 horas)
-    _cache_key = f"{data_ini}|{data_fim}"
+    _cache_key = f"{data_ini}|{data_fim}|v2"  # v2: usa chNFe do XML
     _cached = _VENDOR_MAP_CACHE.get(_cache_key)
     if _cached is not None:
         ts, resultado = _cached
