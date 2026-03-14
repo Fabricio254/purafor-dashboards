@@ -1570,7 +1570,9 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   #modalTabela thead th:hover{{background:#f1f5f9;}}
   #modalTabela thead th.sort-asc::after{{content:' ▲';font-size:9px;}}
   #modalTabela thead th.sort-desc::after{{content:' ▼';font-size:9px;}}
-  #modalTabela tbody tr:hover{{background:#f8fafc;}}
+  #modalTabela tbody tr:hover{{background:#f1f5f9;}}
+  #modalTabela tbody tr.alt-row{{background:#f8fafc;}}
+  #modalTabela tbody tr.modal-total{{background:#e2e8f0;font-weight:800;border-top:2px solid #cbd5e1;}}
   #modalTabela tbody td{{padding:9px 12px;border-bottom:1px solid #f0f4f8;
     vertical-align:middle;color:#1e293b;}}
   #modalTabela td.num{{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;}}
@@ -1635,7 +1637,10 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   body[data-theme="dark"] #modalTabela thead th{{background:#0f172a;color:#94a3b8;border-color:#334155;}}
   body[data-theme="dark"] #modalTabela thead th:hover{{background:#1e293b;}}
   body[data-theme="dark"] #modalTabela tbody td{{color:#e2e8f0;border-color:#334155;}}
-  body[data-theme="dark"] #modalTabela tbody tr:hover{{background:#334155;}}
+  body[data-theme="dark"] #modalTabela tbody tr:hover{{background:#475569;}}
+  body[data-theme="dark"] #modalTabela tbody tr.alt-row{{background:#243247;}}
+  body[data-theme="dark"] #modalTabela tbody tr.modal-total{{background:#0f172a;border-color:#475569;}}
+  body[data-theme="dark"] #modalTabela tbody tr.modal-total td{{color:#f1f5f9;font-weight:800;}}
   body[data-theme="dark"] .modal-footer{{border-color:#334155;color:#94a3b8;background:#1e293b;}}
   body[data-theme="dark"] .footer{{background:#1e293b;border-color:#334155;}}
   body[data-theme="dark"] .footer-dev{{color:#64748b;}}
@@ -2432,8 +2437,8 @@ function renderizarModal() {{
   let html = '';
   dados.forEach((d,i) => {{
     const pm = d.qtd > 0 ? d.liq/d.qtd : 0;
-    const bg = i%2===0 ? '' : 'style="background:#fafafa"';
-    html += `<tr ${{bg}}>`;
+    const cls = i%2===1 ? 'alt-row' : '';
+    html += `<tr class="${{cls}}">`;
     html += `<td class="cod">${{d.cod}}</td>`;
     html += `<td>${{d.produto}}</td>`;
     html += `<td class="num">${{d.qtd.toLocaleString('pt-BR',{{maximumFractionDigits:0}})}}</td>`;
@@ -2444,7 +2449,7 @@ function renderizarModal() {{
 
   // Rodapé de totais
   const pmTot = totQtd > 0 ? totLiq/totQtd : 0;
-  html += `<tr style="background:#f0f4f8;font-weight:800;border-top:2px solid #e2e8f0">`;
+  html += `<tr class="modal-total">`;
   html += `<td colspan="2">TOTAL (${{dados.length}} produtos)</td>`;
   html += `<td class="num">${{totQtd.toLocaleString('pt-BR',{{maximumFractionDigits:0}})}}</td>`;
   html += `<td class="num">${{BRL(totLiq)}}</td>`;
