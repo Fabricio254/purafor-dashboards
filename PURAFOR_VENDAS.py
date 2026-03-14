@@ -485,7 +485,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     d_fim = datetime.strptime(data_fim, _DT_FMT)
 
     _cache_dir  = _CACHE_DIR
-    _cache_path = os.path.join(_cache_dir, 'vendas_v3.json')  # v3: re-fetch com nChave
+    _cache_path = os.path.join(_cache_dir, 'vendas_v4.json')  # v4: usa chNFe do XML como chave
 
     all_cached: list[dict] = []
     cache_earliest: datetime | None = None
