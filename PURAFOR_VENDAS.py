@@ -2826,57 +2826,46 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     print(f"  \u2714 {len(mapa_vend)} vendedores cadastrados na Omie")
 
     # 2. ListarNF filtrado por data de emissao: {cChaveNFe -> nome_vendedor}
-    #    Busca paralela (5 workers): pag 1 descobre total, pags 2..N em paralelo
+    #    Loop sequencial (evita rate-limit da Omie para este endpoint)
+    #    500 reg/pag mantem velocidade boa (poucas paginas necessarias)
     mapa_chave_vend: dict = {}
-
-    def _fetch_nf_pag(pag):
-        return requests.post(URL_NF, json={
-            'call': 'ListarNF', 'app_key': OMIE_APP_KEY,
-            'app_secret': OMIE_APP_SECRET,
-            'param': [{
-                'pagina':               pag,
-                'registros_por_pagina': 500,
-                'dEmiInicial':          data_ini,
-                'dEmiFinal':            data_fim,
-                'tpNF':                 '1',
-                'cDetalhesPedido':      'S',
-            }]
-        }, timeout=60).json()
-
-    def _proc_nfs(r):
-        for nf in r.get('nfCadastro', []):
-            chave    = (nf.get('compl') or {}).get('cChaveNFe', '')
-            nid_vend = (nf.get('pedido') or {}).get('nIdVendedor', 0)
-            if not nid_vend:
-                titulos = nf.get('titulos', []) or []
-                if titulos:
-                    nid_vend = titulos[0].get('nCodVendedor', 0)
-            if chave and nid_vend:
-                mapa_chave_vend[chave] = mapa_vend.get(
-                    int(nid_vend), f'Vendedor-{nid_vend}')
-
-    try:
-        r1 = _fetch_nf_pag(1)
-        if 'faultstring' in r1 or 'faultcode' in r1:
-            print(f"  [AVISO] ListarNF erro: {r1.get('faultstring', r1)}")
-        else:
-            _proc_nfs(r1)
-            total_pag = r1.get('total_de_paginas', 1)
-            print(f"  NF pag 1/{total_pag}: {len(r1.get('nfCadastro', []))} NFs")
-            if total_pag > 1:
-                with ThreadPoolExecutor(max_workers=5) as ex:
-                    futs = {ex.submit(_fetch_nf_pag, p): p for p in range(2, total_pag + 1)}
-                    for fut in as_completed(futs):
-                        p = futs[fut]
-                        try:
-                            rp = fut.result()
-                            if 'faultstring' not in rp and 'faultcode' not in rp:
-                                _proc_nfs(rp)
-                                print(f"  NF pag {p}/{total_pag}: {len(rp.get('nfCadastro', []))} NFs")
-                        except Exception as _e:
-                            print(f"  [AVISO] Erro NF pag {p}: {_e}")
-    except Exception as e:
-        print(f"  [AVISO] Erro ao buscar NFs: {e}")
+    pag = 1
+    while True:
+        try:
+            r = requests.post(URL_NF, json={
+                'call': 'ListarNF', 'app_key': OMIE_APP_KEY,
+                'app_secret': OMIE_APP_SECRET,
+                'param': [{
+                    'pagina':               pag,
+                    'registros_por_pagina': 500,
+                    'dEmiInicial':          data_ini,
+                    'dEmiFinal':            data_fim,
+                    'tpNF':                 '1',
+                    'cDetalhesPedido':      'S',
+                }]
+            }, timeout=60).json()
+            if 'faultstring' in r or 'faultcode' in r:
+                print(f"  [AVISO] Omie erro ListarNF pag {pag}: {r.get('faultstring', r)}")
+                break
+            nfs = r.get('nfCadastro', [])
+            for nf in nfs:
+                chave    = (nf.get('compl') or {}).get('cChaveNFe', '')
+                nid_vend = (nf.get('pedido') or {}).get('nIdVendedor', 0)
+                if not nid_vend:
+                    titulos = nf.get('titulos', []) or []
+                    if titulos:
+                        nid_vend = titulos[0].get('nCodVendedor', 0)
+                if chave and nid_vend:
+                    mapa_chave_vend[chave] = mapa_vend.get(
+                        int(nid_vend), f'Vendedor-{nid_vend}')
+            total_pag = r.get('total_de_paginas', 1)
+            print(f"  NF pag {pag}/{total_pag}: {len(nfs)} NFs processadas")
+            if pag >= total_pag:
+                break
+            pag += 1
+        except Exception as e:
+            print(f"  [AVISO] Erro ao buscar NFs (pag {pag}): {e}")
+            break
 
     print(f"  \u2714 {len(mapa_chave_vend)} NFs com vendedor identificado via ListarNF")
     _VENDOR_MAP_CACHE[_cache_key] = (_vt.time(), mapa_chave_vend)
