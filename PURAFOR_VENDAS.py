@@ -1454,6 +1454,9 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   .canal-toggle.ativo-OUTROS{{background:#6366f1;border-color:#6366f1;color:#fff;}}
   .canal-toggle:not([class*="ativo-"]){{color:#4a5568;}}
   #tblCanal{{width:100%;border-collapse:collapse;font-size:13px;}}
+  .tbl-head-row{{background:#f8fafc;}}
+  .tbl-canal th{{padding:6px 8px;font-weight:600;color:#374151;border-bottom:2px solid #e2e8f0;text-align:center;}}
+  .tbl-canal td{{padding:5px 8px;border-bottom:1px solid #e2e8f0;color:#1e293b;}}
   #tblCanal th{{background:#3a7d44;color:#fff;padding:9px 14px;text-align:center;
     font-weight:700;font-size:12px;letter-spacing:.3px;white-space:nowrap;}}
   #tblCanal th.th-label{{background:#2d5a27;text-align:left;}}
@@ -1633,6 +1636,35 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
   body[data-theme="dark"] .footer-gen{{color:#475569;}}
   body[data-theme="dark"] .footer-sep{{background:#334155;}}
   body[data-theme="dark"] #btn-theme{{background:#e2e8f0;color:#1e293b;border-color:rgba(0,0,0,.18);}}
+  body[data-theme="dark"] .tbl-head-row{{background:#1e293b;}}
+  body[data-theme="dark"] .tbl-canal th{{color:#94a3b8;border-color:#334155;}}
+  body[data-theme="dark"] .tbl-canal td{{color:#e2e8f0;border-color:#334155;}}
+  body[data-theme="dark"] .tbl-canal tbody tr:hover{{background:#334155;}}
+  body[data-theme="dark"] #tblCanal thead th{{background:#1e3a2f;color:#86efac;border-color:#334155;}}
+  body[data-theme="dark"] #tblCanal thead th.th-label{{background:#162c22;}}
+  body[data-theme="dark"] #tblCanal td.num.destaque{{color:#34d399;}}
+  body[data-theme="dark"] #tblCanal td.num.azul{{color:#60a5fa;}}
+  body[data-theme="dark"] .topbar-title{{color:#f1f5f9;}}
+  body[data-theme="dark"] .topbar-sub{{color:#94a3b8;}}
+  body[data-theme="dark"] .topbar-dates{{color:#64748b;}}
+  body[data-theme="dark"] .topbar{{background:#1e293b;border-color:#334155;}}
+  body[data-theme="dark"] .topbar .sub{{color:#64748b;}}
+  body[data-theme="dark"] .topbar .periodo{{color:#60a5fa;}}
+  body[data-theme="dark"] .canal-kpi-card.purafor .canal-kpi-title{{background:#1e3566;color:#93c5fd;}}
+  body[data-theme="dark"] .canal-kpi-card.reavita .canal-kpi-title{{background:#1a3a2a;color:#6ee7b7;}}
+  body[data-theme="dark"] .canal-kpi-card.terc .canal-kpi-title{{background:#3a2800;color:#fcd34d;}}
+  body[data-theme="dark"] .canal-kpi-card.outros .canal-kpi-title{{background:#2d1f66;color:#c4b5fd;}}
+  body[data-theme="dark"] .purafor .btn-ver-prod{{background:#1e3566;color:#93c5fd;}}
+  body[data-theme="dark"] .purafor .btn-ver-prod:hover{{background:#2563eb;color:#fff;}}
+  body[data-theme="dark"] .reavita .btn-ver-prod{{background:#1a3a2a;color:#6ee7b7;}}
+  body[data-theme="dark"] .reavita .btn-ver-prod:hover{{background:#059669;color:#fff;}}
+  body[data-theme="dark"] .terc .btn-ver-prod{{background:#3a2800;color:#fcd34d;}}
+  body[data-theme="dark"] .terc .btn-ver-prod:hover{{background:#d97706;color:#fff;}}
+  body[data-theme="dark"] .outros .btn-ver-prod{{background:#2d1f66;color:#c4b5fd;}}
+  body[data-theme="dark"] .outros .btn-ver-prod:hover{{background:#6366f1;color:#fff;}}
+  body[data-theme="dark"] .canal-kpi-metric .m-value.dev{{color:#f87171;}}
+  body[data-theme="dark"] .topbar-inner{{background:#0f172a;}}
+
 
 </style>
 </head>
@@ -1889,7 +1921,7 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
     <div class="chart-wrap" style="flex:2 1 380px;"><canvas id="chartVendedor" height="200"></canvas></div>
     <div style="flex:1 1 280px;overflow-x:auto;">
       <table class="tbl-canal" style="width:100%;font-size:12px;">
-        <thead><tr style="background:#f8fafc;">
+        <thead><tr class="tbl-head-row">
           <th style="text-align:left;padding:6px 8px;">Vendedor</th>
           <th style="padding:6px 8px;">Fat. Líquido</th>
           <th style="padding:6px 8px;">Part.%</th>
