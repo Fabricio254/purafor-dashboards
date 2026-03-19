@@ -25,6 +25,17 @@ st.markdown("""
 <style>
 .block-container{padding-top:.6rem!important;padding-bottom:0!important;}
 iframe{border:none!important;}
+
+/* Oculta toolbar do Streamlit (Share, Edit, Deploy, GitHub) */
+[data-testid="stToolbar"],
+[data-testid="stDecoration"],
+#MainMenu,
+header[data-testid="stHeader"] button,
+.stDeployButton,
+[data-testid="baseButton-headerNoPadding"],
+iframe[title="streamlit_analytics"],
+div[data-testid="stToolbarActions"],
+[data-testid="stToolbar"] {display:none!important;visibility:hidden!important;}
 </style>
 """, unsafe_allow_html=True)
 
