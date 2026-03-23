@@ -272,6 +272,7 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
     emitente = emit.findtext(f"{{{NS}}}xNome", "") if emit is not None else ""
 
     for det in infnfe.findall(f"{{{NS}}}det"):
+        n_item = det.get("nItem", "")
         prod = det.find(f"{{{NS}}}prod")
         if prod is None:
             continue
@@ -319,6 +320,7 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
             "UF Dest.":     uf_dest,
             "CNPJ_Dest":    cnpj_dest,
             "CFOP":         cfop,
+            "nItem":        n_item,
             "Cód. Produto": cod_prod,
             "Produto":      desc_prod,
             "Família":      "",
@@ -502,7 +504,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str, force_refresh: bool = Fa
     d_fim = datetime.strptime(data_fim, _DT_FMT)
 
     _cache_dir  = _CACHE_DIR
-    _cache_path = os.path.join(_cache_dir, 'vendas_v5.json')  # v5: inclui vFrete/vSeg/vOutro + force_refresh
+    _cache_path = os.path.join(_cache_dir, 'vendas_v6.json')  # v5: inclui vFrete/vSeg/vOutro + force_refresh
 
     all_cached: list[dict] = []
     cache_earliest: datetime | None = None
@@ -574,6 +576,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str, force_refresh: bool = Fa
             r.get('NF', ''),
             r.get('Série', ''),
             r.get('Cód. Produto', ''),
+            r.get('nItem', ''),
             str(r.get('Data Emissão', ''))[:10],
         )
         if k not in seen:
