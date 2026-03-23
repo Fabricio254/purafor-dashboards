@@ -107,8 +107,10 @@ with st.sidebar:
     # ── Período de busca ──────────────────────────────────────────
     st.markdown("### 📅 Período")
     st.caption("🔗 Dados obtidos em tempo real diretamente da API Omie.")
+    from datetime import timedelta as _td
     _hoje    = date.today()
     _ini_def = date(_hoje.year - 1, 1, 1)
+    _max_fut = _hoje + _td(days=3)  # Permite até +3 dias (timezone differences)
 
     col_d1, col_d2 = st.columns(2)
     with col_d1:
@@ -116,7 +118,7 @@ with st.sidebar:
             "Data inicial",
             value=_ini_def,
             min_value=date(2020, 1, 1),
-            max_value=_hoje,
+            max_value=_max_fut,
             format="DD/MM/YYYY",
             key="periodo_ini",
         )
@@ -125,7 +127,7 @@ with st.sidebar:
             "Data final",
             value=_hoje,
             min_value=date(2020, 1, 1),
-            max_value=_hoje,
+            max_value=_max_fut,
             format="DD/MM/YYYY",
             key="periodo_fim",
         )
