@@ -297,6 +297,18 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
             v_desc = float(prod.findtext(f"{{{NS}}}vDesc", "0"))
         except Exception:
             v_desc = 0.0
+        try:
+            v_frete = float(prod.findtext(f"{{{NS}}}vFrete", "0") or "0")
+        except Exception:
+            v_frete = 0.0
+        try:
+            v_seg = float(prod.findtext(f"{{{NS}}}vSeg", "0") or "0")
+        except Exception:
+            v_seg = 0.0
+        try:
+            v_outro = float(prod.findtext(f"{{{NS}}}vOutro", "0") or "0")
+        except Exception:
+            v_outro = 0.0
         registros.append({
             "NF":           num_nf,
             "Série":        serie,
@@ -316,7 +328,7 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
             "Vlr Unitário": v_unit,
             "Vlr Bruto":    v_bruto,
             "Desconto":     v_desc,
-            "Vlr Líquido":  v_bruto - v_desc,
+            "Vlr Líquido":  v_bruto - v_desc + v_frete + v_seg + v_outro,
         })
     return registros
 
@@ -425,7 +437,7 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
 # ──────────────────────────────────────────────
 _DIAS_INCREMENTAL = 45  # ao usar cache, rebusca sempre os últimos N dias
 
-def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
+def _ler_vendas_com_cache(data_ini: str, data_fim: str, force_refresh: bool = False) -> list[dict]:
     """
     Wrapper incremental sobre ler_xmls_omie_api:
     - 1ª execução: baixa tudo e salva em _cache_omie/vendas_full.json
@@ -440,6 +452,17 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     _DT_FMT = '%d/%m/%Y'
     _ISO_FMT = '%Y-%m-%dT%H:%M:%S'
     _MEM_TTL_MIN = 30   # minutos antes de rebuscar incremento
+
+    # ── Force refresh: apaga caches ──────────────────────────────────
+    if force_refresh:
+        _MEM_VENDAS = None
+        _p = os.path.join(_CACHE_DIR, 'vendas_v5.json')
+        if os.path.exists(_p):
+            try:
+                os.remove(_p)
+                print("  ✔ Cache de vendas em disco removido (force refresh)")
+            except Exception:
+                pass
 
     # ── Cache em memória: período coberto pelo conjunto completo e recente? ──
     # Guarda TODOS os registros baixados; filtra aqui sem novos downloads.
@@ -485,7 +508,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
     d_fim = datetime.strptime(data_fim, _DT_FMT)
 
     _cache_dir  = _CACHE_DIR
-    _cache_path = os.path.join(_cache_dir, 'vendas_v4.json')  # v4: usa chNFe do XML como chave
+    _cache_path = os.path.join(_cache_dir, 'vendas_v5.json')  # v5: inclui vFrete/vSeg/vOutro + force_refresh
 
     all_cached: list[dict] = []
     cache_earliest: datetime | None = None
@@ -511,9 +534,17 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str) -> list[dict]:
             cache_earliest = None
 
     # ── Estratégia: incremental ou full fetch ──────────────────────
-    # Força full fetch APENAS se cache vazio OU se conhecemos a data mais antiga
-    # do cache E o período solicitado começa antes dela.
-    # Se cache_earliest é None mas há registros, assume incremental (cache sem metadado antigo).
+    # Força full fetch se:
+    #   - cache vazio
+    #   - período solicitado começa antes do cache
+    #   - período solicitado termina depois do que o cache cobre (dados novos)
+    _cache_latest: datetime | None = None
+    if all_cached:
+        _datas_cache = [r['Data Emissão'] for r in all_cached
+                        if isinstance(r.get('Data Emissão'), datetime)]
+        if _datas_cache:
+            _cache_latest = max(_datas_cache)
+
     _need_full = (
         not all_cached
         or (cache_earliest is not None and d_ini < cache_earliest)
@@ -2894,6 +2925,7 @@ def main(
     saida_excel = _EXCEL_DEFAULT,
     data_ini:    str | None = None,
     data_fim:    str | None = None,
+    force_refresh: bool = False,
 ) -> str | None:
     """
     Executa coleta + geração do dashboard.
@@ -2912,7 +2944,7 @@ def main(
     print(f"\nBuscando NF-e na API Omie: {_data_ini} a {_data_fim}")
     _prog(0.02, f"Iniciando coleta: {_data_ini} → {_data_fim}...")
 
-    registros = _ler_vendas_com_cache(_data_ini, _data_fim)
+    registros = _ler_vendas_com_cache(_data_ini, _data_fim, force_refresh=force_refresh)
     if not registros:
         print("\n[ERRO] Nenhum registro de venda encontrado!")
         return None

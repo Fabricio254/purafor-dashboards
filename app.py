@@ -222,6 +222,7 @@ if pagina == "purafor_vendas":
                         saida_excel=None,
                         data_ini=_data_ini_str,
                         data_fim=_data_fim_str,
+                        force_refresh=btn_atualizar,
                     )
             except Exception as exc:
                 _result[1] = exc
