@@ -1336,21 +1336,21 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
                 "Qtd", "Vlr Bruto", "Desconto", "Vlr Líquido", "Vendedor"]
     raw = []
     for _, r in df[cols_raw].iterrows():
-        raw.append({
-            "nf":      str(r["NF"]),
-            "data":    r["Data Emissão"].strftime("%Y-%m-%d"),
-            "cliente": str(r["Cliente"])[:50],
-            "cod":     str(r["Cód. Produto"]),
-            "produto": str(r["Produto"])[:50],
-            "familia": str(r["Família"]) if r["Família"] else "SEM CADASTRO",
-            "marca":   str(r["Marca"])   if r["Marca"]   else "SEM CADASTRO",
-            "uf":      str(r["UF Dest."]),
-            "qtd":     round(float(r["Qtd"]), 4),
-            "bruto":   round(float(r["Vlr Bruto"]), 2),
-            "desc":    round(float(r["Desconto"]), 2),
-            "liq":     round(float(r["Vlr Líquido"]), 2),
-            "vendedor": str(r["Vendedor"]) if r["Vendedor"] else "Sem Vendedor",
-        })
+        raw.append([
+            str(r["NF"]),
+            r["Data Emissão"].strftime("%Y-%m-%d"),
+            str(r["Cliente"])[:50],
+            str(r["Cód. Produto"]),
+            str(r["Produto"])[:50],
+            str(r["Família"]) if r["Família"] else "SEM CADASTRO",
+            str(r["Marca"])   if r["Marca"]   else "SEM CADASTRO",
+            str(r["UF Dest."]),
+            round(float(r["Qtd"]), 4),
+            round(float(r["Vlr Bruto"]), 2),
+            round(float(r["Desconto"]), 2),
+            round(float(r["Vlr Líquido"]), 2),
+            str(r["Vendedor"]) if r["Vendedor"] else "Sem Vendedor",
+        ])
 
 
     def jv(v):
@@ -2031,11 +2031,9 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
 // ═══════════════════════════════════════════════════
 //  DADOS BRUTOS (todas as linhas de venda)
 // ═══════════════════════════════════════════════════
-const DADOS     = {jv(raw)};
-// Catálogo completo de produtos Omie (indexado pelo código da NF-e)
-// Campos: codigo, descricao, descricao_familia, marca, ean, ncm, unidade,
-//         valor_unitario, peso_bruto, peso_liq, inativo, tipoItem, imagens, etc.
-const PRODUTOS_OMIE = {jv(produtos_omie or {{}})};
+const _KEYS=['nf','data','cliente','cod','produto','familia','marca','uf','qtd','bruto','desc','liq','vendedor'];
+function _unpack(R,K){{return R.map(a=>{{const o={{}};K.forEach((k,i)=>o[k]=a[i]);return o;}})}}
+const DADOS     = _unpack({jv(raw)}, _KEYS);
 const CORES = {jv(cores_graficos)};
 const BRL = v => 'R$\u00a0' + v.toLocaleString('pt-BR',{{minimumFractionDigits:2,maximumFractionDigits:2}});
 const NUM = v => v.toLocaleString('pt-BR');
