@@ -453,14 +453,14 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str, force_refresh: bool = Fa
     _ISO_FMT = '%Y-%m-%dT%H:%M:%S'
     _MEM_TTL_MIN = 30   # minutos antes de rebuscar incremento
 
-    # ── Force refresh: apaga caches ──────────────────────────────────
+    # ── Force refresh: apaga TODOS os caches (v3, v4, v5…) ─────
     if force_refresh:
         _MEM_VENDAS = None
-        _p = os.path.join(_CACHE_DIR, 'vendas_v5.json')
-        if os.path.exists(_p):
+        import glob as _glob
+        for _old in _glob.glob(os.path.join(_CACHE_DIR, 'vendas_v*.json')):
             try:
-                os.remove(_p)
-                print("  ✔ Cache de vendas em disco removido (force refresh)")
+                os.remove(_old)
+                print(f"  ✔ Cache removido: {os.path.basename(_old)}")
             except Exception:
                 pass
 
