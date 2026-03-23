@@ -395,9 +395,8 @@ def _omie_fetch_periodo(d_ini_str: str, d_fim_str: str) -> list[dict]:
 
 def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
     """
-    Baixa NF-e Omie dividindo em chunks de 3 meses.
-    Queries longas (21+ páginas) sofrem rate-limiting silencioso e perdem NFs.
-    Queries curtas (1-5 páginas) são 100% confiáveis.
+    Baixa NF-e Omie dividindo em chunks mensais.
+    Janelas amplas podem retornar conjuntos inconsistentes; mensal é estável.
     """
     from datetime import date as _date
     import calendar as _cal
@@ -406,21 +405,18 @@ def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
     d0    = datetime.strptime(data_ini, _FMT).date()
     d1    = datetime.strptime(data_fim, _FMT).date()
 
-    # Gera chunks de 3 meses
+    # Gera chunks mensais
     chunks, cur = [], d0
     while cur <= d1:
-        em = cur.month + 2
-        ey = cur.year + (em - 1) // 12
-        em = ((em - 1) % 12) + 1
-        elast = _cal.monthrange(ey, em)[1]
-        c_end = min(_date(ey, em, elast), d1)
+        elast = _cal.monthrange(cur.year, cur.month)[1]
+        c_end = min(_date(cur.year, cur.month, elast), d1)
         chunks.append((cur.strftime(_FMT), c_end.strftime(_FMT)))
-        nm = c_end.month % 12 + 1
-        ny = c_end.year + (1 if c_end.month == 12 else 0)
+        nm = cur.month % 12 + 1
+        ny = cur.year + (1 if cur.month == 12 else 0)
         cur = _date(ny, nm, 1)
 
     nc = len(chunks)
-    print(f"  Omie: {nc} chunk(s) de 3 meses ({data_ini} a {data_fim})...")
+    print(f"  Omie: {nc} chunk(s) mensais ({data_ini} a {data_fim})...")
     todos: list[dict] = []
     for i, (ci, cf) in enumerate(chunks):
         _prog(0.05 + (i / nc) * 0.33, f"Vendas: chunk {i+1}/{nc}...")
@@ -479,7 +475,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str, force_refresh: bool = Fa
                 resultado = [
                     r for r in _MEM_VENDAS['records_all']
                     if r.get('Data Emissão') is not None
-                    and d_ini_req <= r['Data Emissão'] <= d_fim_req
+                    and d_ini_req.date() <= r['Data Emissão'].date() <= d_fim_req.date()
                 ]
                 print(f"  ✔ Vendas (memória {_age_min:.1f} min, filtrado): "
                       f"{len(resultado)} registros")
@@ -618,7 +614,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str, force_refresh: bool = Fa
     resultado = [
         r for r in dedup
         if r.get('Data Emissão') is not None
-        and d_ini <= r['Data Emissão'] <= d_fim
+        and d_ini.date() <= r['Data Emissão'].date() <= d_fim.date()
     ]
     return resultado
 
