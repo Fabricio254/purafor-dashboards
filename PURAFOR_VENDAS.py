@@ -333,103 +333,101 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
     return registros
 
 
-def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
-    """
-    Baixa todas as NF-e modelo 55 autorizadas do Omie no período informado.
-    Substitui a leitura da pasta local de XMLs.
-    - data_ini / data_fim: formato "DD/MM/AAAA"
-    - NF-e canceladas (cStatus='40') são ignoradas.
-    - Filtra itens com CFOP em CFOP_VENDA.
-    - Usa 500 registros/página + busca paralela (5 workers) para máxima velocidade.
-    """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import threading
+def _omie_fetch_periodo(d_ini_str: str, d_fim_str: str) -> list[dict]:
+    """Busca NF-e de um período curto (max ~3 meses). Sequencial com retry."""
+    import time as _time
+    URL     = 'https://app.omie.com.br/api/v1/contador/xml/'
+    REG_PAG = 500
 
-    URL = 'https://app.omie.com.br/api/v1/contador/xml/'
-    REG_PAG = 500  # máximo Omie — reduz 41 páginas → ~5 páginas
-
-    def _fetch_pag(pag_num: int) -> tuple:
-        """Busca uma página e retorna (numero_pagina, resposta)."""
-        resp = requests.post(URL, json={
+    def _fetch_pag(pag: int) -> dict:
+        payload = {
             'call': 'ListarDocumentos',
             'app_key': OMIE_APP_KEY,
             'app_secret': OMIE_APP_SECRET,
-            'param': [{
-                'cModelo': '55',
-                'dEmiInicial': data_ini,
-                'dEmiFinal': data_fim,
-                'nPagina': pag_num,
-                'nRegPorPagina': REG_PAG,
-            }]
-        }, timeout=120).json()
-        return pag_num, resp
+            'param': [{'cModelo': '55', 'dEmiInicial': d_ini_str,
+                       'dEmiFinal': d_fim_str, 'nPagina': pag,
+                       'nRegPorPagina': REG_PAG}]
+        }
+        for t in range(3):
+            try:
+                r = requests.post(URL, json=payload, timeout=120).json()
+                if 'faultstring' in r:
+                    raise RuntimeError(r['faultstring'])
+                return r
+            except Exception:
+                if t < 2:
+                    _time.sleep(2 ** t)
+                else:
+                    raise
 
-    def _processar_resp(resp: dict) -> list:
-        """Extrai itens de uma resposta, ignorando NFs canceladas."""
-        itens_pag = []
+    def _parse(resp: dict) -> list[dict]:
+        out = []
         for doc in resp.get('documentosEncontrados', []):
             if doc.get('cStatus') == '40':
                 continue
-            xml_str = doc.get('cXml', '')
-            n_id_pedido = doc.get('nIdPedido', 0)
-            n_chave = doc.get('nChave', '')
-            if xml_str:
-                itens = _parsear_xml_nfe(xml_str)
-                for item in itens:
-                    item['nIdPedido'] = n_id_pedido
-                    # Prefere chNFe extraido do XML (garantidamente 44 digitos)
-                    # Fallback para nChave da API (pode ser ID interno Omie)
-                    item['nChave'] = item.get('chNFe') or n_chave
-                itens_pag.extend(itens)
-        return itens_pag
+            xml = doc.get('cXml', '')
+            pid = doc.get('nIdPedido', 0)
+            chave = doc.get('nChave', '')
+            if xml:
+                for item in _parsear_xml_nfe(xml):
+                    item['nIdPedido'] = pid
+                    item['nChave']    = chave
+                    out.append(item)
+        return out
 
-    # ── Página 1: descobre total de páginas ──────────────────────────────────
     try:
-        _, resp0 = _fetch_pag(1)
-        if 'faultstring' in resp0:
-            print(f"  [ERRO] Omie API: {resp0['faultstring']}")
-            return []
-        total   = resp0.get('nTotRegistros', 0)
-        tot_pag = resp0.get('nTotPaginas', math.ceil(total / REG_PAG))
-        print(f"  Omie: {total} NF-e no período ({tot_pag} páginas de {REG_PAG})")
+        r0      = _fetch_pag(1)
+        total   = r0.get('nTotRegistros', 0)
+        tot_pag = r0.get('nTotPaginas', math.ceil(max(total, 1) / REG_PAG))
+        print(f"    [{d_ini_str}→{d_fim_str}] {total} NF-e, {tot_pag} pág.")
     except Exception as e:
-        print(f"  [ERRO] Omie API indisponível: {e}")
+        print(f"  [ERRO] API Omie ({d_ini_str}→{d_fim_str}): {e}")
         return []
 
-    _prog(0.08, f"Vendas: página 1/{tot_pag}...")
+    regs = _parse(r0)
+    for pag in range(2, tot_pag + 1):
+        try:
+            regs.extend(_parse(_fetch_pag(pag)))
+        except Exception as e:
+            print(f"  [AVISO] Falha pág {pag}: {e}")
+    return regs
 
-    # ── Páginas 2..N em paralelo (5 workers simultâneos) ─────────────────────
-    _lock = threading.Lock()
-    resultados_por_pag = {1: _processar_resp(resp0)}
-    _concluidas = [1]  # contador protegido por _lock
 
-    if tot_pag > 1:
-        with ThreadPoolExecutor(max_workers=5) as ex:
-            futures = {ex.submit(_fetch_pag, p): p for p in range(2, tot_pag + 1)}
-            for fut in as_completed(futures):
-                try:
-                    pag_num, resp = fut.result()
-                    itens_pag = _processar_resp(resp)
-                    with _lock:
-                        resultados_por_pag[pag_num] = itens_pag
-                        _concluidas.append(pag_num)
-                        n_done = len(_concluidas)
-                    _prog(0.05 + (n_done / max(tot_pag, 1)) * 0.33,
-                          f"Vendas: {n_done}/{tot_pag} páginas concluídas...")
-                    print(f"    pág {pag_num}/{tot_pag} OK ({len(itens_pag)} itens)")
-                except Exception as e:
-                    pag_num = futures[fut]
-                    print(f"  [AVISO] Erro pág {pag_num}: {e}")
-                    with _lock:
-                        resultados_por_pag[pag_num] = []
+def ler_xmls_omie_api(data_ini: str, data_fim: str) -> list[dict]:
+    """
+    Baixa NF-e Omie dividindo em chunks de 3 meses.
+    Queries longas (21+ páginas) sofrem rate-limiting silencioso e perdem NFs.
+    Queries curtas (1-5 páginas) são 100% confiáveis.
+    """
+    from datetime import date as _date
+    import calendar as _cal
 
-    # ── Ordena por página e junta tudo ───────────────────────────────────────
-    registros = []
-    for p in sorted(resultados_por_pag):
-        registros.extend(resultados_por_pag[p])
+    _FMT  = '%d/%m/%Y'
+    d0    = datetime.strptime(data_ini, _FMT).date()
+    d1    = datetime.strptime(data_fim, _FMT).date()
 
-    print(f"  ✔ {len(registros)} itens de {tot_pag} páginas baixadas em paralelo")
-    return registros
+    # Gera chunks de 3 meses
+    chunks, cur = [], d0
+    while cur <= d1:
+        em = cur.month + 2
+        ey = cur.year + (em - 1) // 12
+        em = ((em - 1) % 12) + 1
+        elast = _cal.monthrange(ey, em)[1]
+        c_end = min(_date(ey, em, elast), d1)
+        chunks.append((cur.strftime(_FMT), c_end.strftime(_FMT)))
+        nm = c_end.month % 12 + 1
+        ny = c_end.year + (1 if c_end.month == 12 else 0)
+        cur = _date(ny, nm, 1)
+
+    nc = len(chunks)
+    print(f"  Omie: {nc} chunk(s) de 3 meses ({data_ini} a {data_fim})...")
+    todos: list[dict] = []
+    for i, (ci, cf) in enumerate(chunks):
+        _prog(0.05 + (i / nc) * 0.33, f"Vendas: chunk {i+1}/{nc}...")
+        todos.extend(_omie_fetch_periodo(ci, cf))
+
+    print(f"  \u2714 {len(todos)} itens total ({nc} chunks)")
+    return todos
 
 
 # ──────────────────────────────────────────────
