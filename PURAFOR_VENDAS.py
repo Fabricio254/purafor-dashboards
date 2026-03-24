@@ -2796,7 +2796,7 @@ document.addEventListener('DOMContentLoaded', () => {{
     if (saved === 'light') {{
       document.body.setAttribute('data-theme', 'light');
       const btn = document.getElementById('btn-theme');
-      if (btn) btn.textContent = '\uD83C\uDF19';
+      if (btn) btn.textContent = '🌙';
       // Apply chart colors for dark mode on page load
       const gridColor  = '#e2e8f0';
       const labelColor = '#4a5568';
