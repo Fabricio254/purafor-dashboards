@@ -1723,9 +1723,9 @@ def gerar_dashboard_html(df: pd.DataFrame, caminho_saida: str, produtos_omie: di
 
 </style>
 </head>
-<body>
+<body data-theme="dark">
 <!-- BOTÃO DARK MODE -->
-<button id="btn-theme" onclick="toggleTheme()" title="Alternar modo claro/escuro">🌙</button>
+<button id="btn-theme" onclick="toggleTheme()" title="Alternar modo claro/escuro">🌞</button>
 <!-- BOTÃO TELA CHEIA -->
 <button id="btn-fullscreen" onclick="openFullScreen()" title="Abrir em tela cheia">⛶</button>
 
@@ -2750,6 +2750,10 @@ function limparFiltros() {{
 // ── Inicializa ──────────────────────────────────────
 dadosFiltrados    = DADOS;
 atualizar();
+
+// Chart.js defaults para dark mode (padrao)
+Chart.defaults.color       = '#94a3b8';
+Chart.defaults.borderColor = '#334155';
 // ── TELA CHEIA ─────────────────────────────────────
 function openFullScreen() {{
   const html = '<!DOCTYPE html>' + document.documentElement.outerHTML;
@@ -2789,13 +2793,13 @@ document.addEventListener('DOMContentLoaded', () => {{
   if (pg) pg.focus();
   try {{
     const saved = localStorage.getItem('purafor-theme');
-    if (saved === 'dark') {{
-      document.body.setAttribute('data-theme', 'dark');
+    if (saved === 'light') {{
+      document.body.setAttribute('data-theme', 'light');
       const btn = document.getElementById('btn-theme');
-      if (btn) btn.textContent = '\u2600\uFE0F';
+      if (btn) btn.textContent = '\uD83C\uDF19';
       // Apply chart colors for dark mode on page load
-      const gridColor  = '#334155';
-      const labelColor = '#94a3b8';
+      const gridColor  = '#e2e8f0';
+      const labelColor = '#4a5568';
       Chart.defaults.color       = labelColor;
       Chart.defaults.borderColor = gridColor;
       Object.values(Chart.instances).forEach(ch => {{
