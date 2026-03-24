@@ -90,6 +90,8 @@ CFOP_VENDA = {
     "5108", "6108",
     # Venda de mercadoria / operações diversas
     "5110", "6110",
+    # Remessa em bonificação, doação ou brinde (itens incluídos na NF de venda)
+    "5910", "6910",
 }
 
 
@@ -310,6 +312,19 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
             v_outro = float(prod.findtext(f"{{{NS}}}vOutro", "0") or "0")
         except Exception:
             v_outro = 0.0
+        # vICMSDeson: ICMS desonerado (ex: Zona Franca de Manaus)
+        v_icms_deson = 0.0
+        imposto = det.find(f"{{{NS}}}imposto")
+        if imposto is not None:
+            icms_grp = imposto.find(f"{{{NS}}}ICMS")
+            if icms_grp is not None:
+                for _icms_child in icms_grp:
+                    _deson = _icms_child.findtext(f"{{{NS}}}vICMSDeson", "")
+                    if _deson:
+                        try:
+                            v_icms_deson = float(_deson)
+                        except Exception:
+                            pass
         registros.append({
             "NF":           num_nf,
             "Série":        serie,
@@ -330,7 +345,7 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
             "Vlr Unitário": v_unit,
             "Vlr Bruto":    v_bruto,
             "Desconto":     v_desc,
-            "Vlr Líquido":  v_bruto - v_desc + v_frete + v_seg + v_outro,
+            "Vlr Líquido":  v_bruto - v_desc + v_frete + v_seg + v_outro - v_icms_deson,
         })
     return registros
 
@@ -504,7 +519,7 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str, force_refresh: bool = Fa
     d_fim = datetime.strptime(data_fim, _DT_FMT)
 
     _cache_dir  = _CACHE_DIR
-    _cache_path = os.path.join(_cache_dir, 'vendas_v6.json')  # v5: inclui vFrete/vSeg/vOutro + force_refresh
+    _cache_path = os.path.join(_cache_dir, 'vendas_v7.json')  # v7: +CFOP 6910/5910 (brindes) + vICMSDeson (ZFM)
 
     all_cached: list[dict] = []
     cache_earliest: datetime | None = None
