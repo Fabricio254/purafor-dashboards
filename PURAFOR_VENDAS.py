@@ -2930,6 +2930,7 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     mapa_chave_vend: dict = {}
     for _p_ini, _p_fim in _periodos:
         pag = 1
+        _max_tentativas = 3  # retry em caso de erro SOAP
         while True:
             try:
                 r = requests.post(URL_NF, json={
@@ -2946,7 +2947,14 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
                 }, timeout=60).json()
                 if 'faultstring' in r or 'faultcode' in r:
                     print(f"  [AVISO] Omie erro ListarNF {_p_ini}-{_p_fim} pag {pag}: {r.get('faultstring', r)}")
-                    break
+                    _max_tentativas -= 1
+                    if _max_tentativas > 0:
+                        import time as _t_retry
+                        _t_retry.sleep(2)  # aguarda 2s antes de retry
+                        continue
+                    else:
+                        print(f"  [ERRO] Máximo de tentativas alcançado para {_p_ini}-{_p_fim} pag {pag}")
+                        break
                 nfs = r.get('nfCadastro', [])
                 for nf in nfs:
                     chave    = (nf.get('compl') or {}).get('cChaveNFe', '')
@@ -2963,9 +2971,16 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
                 if pag >= total_pag:
                     break
                 pag += 1
+                _max_tentativas = 3  # reset tentativas a cada página bem-sucedida
             except Exception as e:
                 print(f"  [AVISO] Erro ao buscar NFs {_p_ini}-{_p_fim} (pag {pag}): {e}")
-                break
+                _max_tentativas -= 1
+                if _max_tentativas > 0:
+                    import time as _t_retry
+                    _t_retry.sleep(2)
+                    continue
+                else:
+                    break
 
     print(f"  \u2714 {len(mapa_chave_vend)} NFs com vendedor identificado via ListarNF")
     _VENDOR_MAP_CACHE[_cache_key] = (_vt.time(), mapa_chave_vend)
