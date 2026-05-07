@@ -2503,18 +2503,39 @@ function renderizarModal() {{
 }}
 let dadosFiltrados    = DADOS;
 
+function atualizarDropdownVendedor(base) {{
+  const sel = document.getElementById('fVend');
+  if (!sel) return;
+  const currentVal = sel.value;
+  const vendors = [...new Set(base.map(r => r.vendedor))]
+    .filter(v => v && v !== 'Sem Vendedor').sort();
+  sel.innerHTML = '<option value="">Todos</option>';
+  vendors.forEach(v => {{
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = v;
+    if (v === currentVal) opt.selected = true;
+    sel.appendChild(opt);
+  }});
+}}
+
 function filtrar() {{
   const ini = document.getElementById('fDateIni').value;
   const fim = document.getElementById('fDateFim').value;
-
   const vend = document.getElementById('fVend') ? document.getElementById('fVend').value : '';
-  dadosFiltrados = DADOS.filter(r => {{
+
+  // 1º filtra só por data → base para reconstruir dropdown de vendedores
+  const porData = DADOS.filter(r => {{
     if (ini && r.data < ini) return false;
     if (fim && r.data > fim) return false;
+    return true;
+  }});
+  atualizarDropdownVendedor(porData);
+
+  // 2º aplica filtro de vendedor sobre os dados já filtrados por data
+  dadosFiltrados = porData.filter(r => {{
     if (vend && r.vendedor !== vend) return false;
     return true;
   }});
-
 
   const total = dadosFiltrados.length;
   document.getElementById('filtroInfo').textContent =
@@ -2742,6 +2763,7 @@ function limparFiltros() {{
   document.getElementById('fDateIni').value = '{dt_min_iso}';
   document.getElementById('fDateFim').value = '{dt_max_iso}';
   document.getElementById('filtroInfo').textContent = '';
+  atualizarDropdownVendedor(DADOS);
   if (document.getElementById('fVend')) document.getElementById('fVend').value = '';
   dadosFiltrados    = DADOS;
   atualizar();
@@ -2749,6 +2771,7 @@ function limparFiltros() {{
 
 // ── Inicializa ──────────────────────────────────────
 dadosFiltrados    = DADOS;
+atualizarDropdownVendedor(DADOS);
 atualizar();
 
 // Chart.js defaults para dark mode (padrao)
