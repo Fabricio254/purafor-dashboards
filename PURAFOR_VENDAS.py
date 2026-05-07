@@ -2877,7 +2877,7 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     URL_NF   = 'https://app.omie.com.br/api/v1/produtos/nfconsultar/'
 
     # Cache de modulo (3 horas)
-    _cache_key = f"{data_ini}|{data_fim}|v2"  # v2: usa chNFe do XML
+    _cache_key = f"{data_ini}|{data_fim}|v3"  # v3: itera por ano (fix Omie multi-ano)
     _cached = _VENDOR_MAP_CACHE.get(_cache_key)
     if _cached is not None:
         ts, resultado = _cached
@@ -2906,46 +2906,66 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     print(f"  \u2714 {len(mapa_vend)} vendedores cadastrados na Omie")
 
     # 2. ListarNF filtrado por data de emissao: {cChaveNFe -> nome_vendedor}
-    #    Loop sequencial (evita rate-limit da Omie para este endpoint)
-    #    500 reg/pag mantem velocidade boa (poucas paginas necessarias)
+    #    IMPORTANTE: Omie ListarNF limita resultados ao primeiro ano quando o
+    #    período abrange múltiplos anos. Por isso iteramos ano a ano.
+    from datetime import datetime as _dt2
+
+    def _parse_data(s: str):  # 'DD/MM/YYYY' → date
+        d, m, y = s.split('/')
+        return _dt2(int(y), int(m), int(d)).date()
+
+    def _fmt_data(d) -> str:  # date → 'DD/MM/YYYY'
+        return d.strftime('%d/%m/%Y')
+
+    import datetime as _dtt2
+    _ini_d = _parse_data(data_ini)
+    _fim_d = _parse_data(data_fim)
+    # Gera lista de sub-períodos ano a ano
+    _periodos = []
+    for _yr in range(_ini_d.year, _fim_d.year + 1):
+        _sub_ini = _dtt2.date(_yr, 1, 1) if _yr > _ini_d.year else _ini_d
+        _sub_fim = _dtt2.date(_yr, 12, 31) if _yr < _fim_d.year else _fim_d
+        _periodos.append((_fmt_data(_sub_ini), _fmt_data(_sub_fim)))
+
     mapa_chave_vend: dict = {}
-    pag = 1
-    while True:
-        try:
-            r = requests.post(URL_NF, json={
-                'call': 'ListarNF', 'app_key': OMIE_APP_KEY,
-                'app_secret': OMIE_APP_SECRET,
-                'param': [{
-                    'pagina':               pag,
-                    'registros_por_pagina': 500,
-                    'dEmiInicial':          data_ini,
-                    'dEmiFinal':            data_fim,
-                    'tpNF':                 '1',
-                    'cDetalhesPedido':      'S',
-                }]
-            }, timeout=60).json()
-            if 'faultstring' in r or 'faultcode' in r:
-                print(f"  [AVISO] Omie erro ListarNF pag {pag}: {r.get('faultstring', r)}")
+    for _p_ini, _p_fim in _periodos:
+        pag = 1
+        while True:
+            try:
+                r = requests.post(URL_NF, json={
+                    'call': 'ListarNF', 'app_key': OMIE_APP_KEY,
+                    'app_secret': OMIE_APP_SECRET,
+                    'param': [{
+                        'pagina':               pag,
+                        'registros_por_pagina': 500,
+                        'dEmiInicial':          _p_ini,
+                        'dEmiFinal':            _p_fim,
+                        'tpNF':                 '1',
+                        'cDetalhesPedido':      'S',
+                    }]
+                }, timeout=60).json()
+                if 'faultstring' in r or 'faultcode' in r:
+                    print(f"  [AVISO] Omie erro ListarNF {_p_ini}-{_p_fim} pag {pag}: {r.get('faultstring', r)}")
+                    break
+                nfs = r.get('nfCadastro', [])
+                for nf in nfs:
+                    chave    = (nf.get('compl') or {}).get('cChaveNFe', '')
+                    nid_vend = (nf.get('pedido') or {}).get('nIdVendedor', 0)
+                    if not nid_vend:
+                        titulos = nf.get('titulos', []) or []
+                        if titulos:
+                            nid_vend = titulos[0].get('nCodVendedor', 0)
+                    if chave and nid_vend:
+                        mapa_chave_vend[chave] = mapa_vend.get(
+                            int(nid_vend), f'Vendedor-{nid_vend}')
+                total_pag = r.get('total_de_paginas', 1)
+                print(f"  NF {_p_ini}-{_p_fim} pag {pag}/{total_pag}: {len(nfs)} NFs processadas")
+                if pag >= total_pag:
+                    break
+                pag += 1
+            except Exception as e:
+                print(f"  [AVISO] Erro ao buscar NFs {_p_ini}-{_p_fim} (pag {pag}): {e}")
                 break
-            nfs = r.get('nfCadastro', [])
-            for nf in nfs:
-                chave    = (nf.get('compl') or {}).get('cChaveNFe', '')
-                nid_vend = (nf.get('pedido') or {}).get('nIdVendedor', 0)
-                if not nid_vend:
-                    titulos = nf.get('titulos', []) or []
-                    if titulos:
-                        nid_vend = titulos[0].get('nCodVendedor', 0)
-                if chave and nid_vend:
-                    mapa_chave_vend[chave] = mapa_vend.get(
-                        int(nid_vend), f'Vendedor-{nid_vend}')
-            total_pag = r.get('total_de_paginas', 1)
-            print(f"  NF pag {pag}/{total_pag}: {len(nfs)} NFs processadas")
-            if pag >= total_pag:
-                break
-            pag += 1
-        except Exception as e:
-            print(f"  [AVISO] Erro ao buscar NFs (pag {pag}): {e}")
-            break
 
     print(f"  \u2714 {len(mapa_chave_vend)} NFs com vendedor identificado via ListarNF")
     _VENDOR_MAP_CACHE[_cache_key] = (_vt.time(), mapa_chave_vend)
