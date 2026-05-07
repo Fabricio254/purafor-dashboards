@@ -186,12 +186,19 @@ if pagina == "purafor_vendas":
             pv = sys.modules["PURAFOR_VENDAS"]
             # Preserva cache de vendedores antes do reload
             _vendor_cache = getattr(pv, "_VENDOR_MAP_CACHE", {})
+            # Limpa entradas suspeitas (mapas com <50 registros = erro de coleta)
+            _vendor_cache_cleaned = {
+                k: v for k, v in _vendor_cache.items()
+                if isinstance(v, tuple) and len(v) == 2 and len(v[1]) >= 50
+            }
+            if len(_vendor_cache_cleaned) < len(_vendor_cache):
+                print(f"  [Cache] Descartadas {len(_vendor_cache) - len(_vendor_cache_cleaned)} entradas suspeitas")
             # _MEM_VENDAS: preserva apenas se NÃO veio de "Atualizar Dados"
             # (ao clicar Atualizar, força fresh fetch para garantir dados atuais)
             _mem_vendas = None if btn_atualizar else getattr(pv, "_MEM_VENDAS", None)
             importlib.reload(pv)
-            # Restaura caches (evita refetch de vendedores dentro da sessão)
-            pv._VENDOR_MAP_CACHE = _vendor_cache
+            # Restaura caches limpos (evita refetch de vendedores dentro da sessão)
+            pv._VENDOR_MAP_CACHE = _vendor_cache_cleaned
             pv._MEM_VENDAS       = _mem_vendas
         else:
             import PURAFOR_VENDAS as pv

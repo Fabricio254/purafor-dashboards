@@ -2881,9 +2881,16 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     _cached = _VENDOR_MAP_CACHE.get(_cache_key)
     if _cached is not None:
         ts, resultado = _cached
-        if _vt.time() - ts < 10800:
+        _age_secs = _vt.time() - ts
+        # Valida cache: deve ter pelo menos 50 entradas (detecta mapas incompletos de erro)
+        _is_valid = (_age_secs < 10800) and (len(resultado) >= 50)
+        if _is_valid:
             print(f"  \u2714 Mapa de vendedores do cache ({len(resultado)} entradas)")
             return resultado
+        elif _age_secs >= 10800:
+            print(f"  \u26a0 Cache expirou (3h+) — refazendo mapa de vendedores")
+        else:
+            print(f"  \u26a0 Cache suspeito ({len(resultado)} entradas) — refazendo mapa de vendedores")
 
     # 1. Busca todos os vendedores: {codigo -> nome}
     mapa_vend: dict = {}
@@ -2930,7 +2937,7 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
     mapa_chave_vend: dict = {}
     for _p_ini, _p_fim in _periodos:
         pag = 1
-        _max_tentativas = 3  # retry em caso de erro SOAP
+        _erros_consecutivos = 0  # conta erros seguidos pra esse período
         while True:
             try:
                 r = requests.post(URL_NF, json={
@@ -2946,15 +2953,19 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
                     }]
                 }, timeout=60).json()
                 if 'faultstring' in r or 'faultcode' in r:
-                    print(f"  [AVISO] Omie erro ListarNF {_p_ini}-{_p_fim} pag {pag}: {r.get('faultstring', r)}")
-                    _max_tentativas -= 1
-                    if _max_tentativas > 0:
+                    _erros_consecutivos += 1
+                    _msg_erro = r.get('faultstring', str(r.get('faultcode', 'Unknown')))
+                    if _erros_consecutivos <= 3:  # retenta até 3 vezes
+                        print(f"  [RETRY {_erros_consecutivos}/3] Omie ListarNF {_p_ini}-{_p_fim} pag {pag}: {_msg_erro}")
                         import time as _t_retry
-                        _t_retry.sleep(2)  # aguarda 2s antes de retry
+                        _t_retry.sleep(3 + _erros_consecutivos)  # backoff: 4s, 5s, 6s
                         continue
                     else:
-                        print(f"  [ERRO] Máximo de tentativas alcançado para {_p_ini}-{_p_fim} pag {pag}")
-                        break
+                        print(f"  [ERRO] Máximo de tentativas para {_p_ini}-{_p_fim} pag {pag}")
+                        pag += 1  # pula para próxima página mesmo com erro
+                        _erros_consecutivos = 0
+                        continue
+                _erros_consecutivos = 0  # reset em sucesso
                 nfs = r.get('nfCadastro', [])
                 for nf in nfs:
                     chave    = (nf.get('compl') or {}).get('cChaveNFe', '')
@@ -2971,16 +2982,18 @@ def _buscar_mapa_vendedor(data_ini: str, data_fim: str) -> dict:
                 if pag >= total_pag:
                     break
                 pag += 1
-                _max_tentativas = 3  # reset tentativas a cada página bem-sucedida
             except Exception as e:
-                print(f"  [AVISO] Erro ao buscar NFs {_p_ini}-{_p_fim} (pag {pag}): {e}")
-                _max_tentativas -= 1
-                if _max_tentativas > 0:
+                _erros_consecutivos += 1
+                if _erros_consecutivos <= 3:
+                    print(f"  [RETRY {_erros_consecutivos}/3] Erro ao buscar NFs {_p_ini}-{_p_fim} (pag {pag}): {e}")
                     import time as _t_retry
-                    _t_retry.sleep(2)
+                    _t_retry.sleep(3 + _erros_consecutivos)
                     continue
                 else:
-                    break
+                    print(f"  [ERRO] Máximo de tentativas para {_p_ini}-{_p_fim} pag {pag}: {e}")
+                    pag += 1  # avança mesmo com erro
+                    _erros_consecutivos = 0
+                    continue
 
     print(f"  \u2714 {len(mapa_chave_vend)} NFs com vendedor identificado via ListarNF")
     _VENDOR_MAP_CACHE[_cache_key] = (_vt.time(), mapa_chave_vend)
