@@ -229,11 +229,22 @@ def _parsear_xml_nfe(xml_str: str) -> list[dict]:
     Filtra apenas CFOPs em CFOP_VENDA e ignora NF-e canceladas.
     """
     import html as _html
+    import re as _re
     registros = []
+    _xml_decodificado = _html.unescape(xml_str)
     try:
-        root = ET.fromstring(_html.unescape(xml_str))
+        root = ET.fromstring(_xml_decodificado)
     except ET.ParseError:
-        return registros
+        # Alguns XMLs da Omie trazem '&' literal em textos apos o unescape.
+        _xml_reparado = _re.sub(
+            r'&(?!#\d+;|#x[0-9A-Fa-f]+;|amp;|lt;|gt;|quot;|apos;)',
+            '&amp;',
+            _xml_decodificado,
+        )
+        try:
+            root = ET.fromstring(_xml_reparado)
+        except ET.ParseError:
+            return registros
 
     nfe = root.find(f"{{{NS}}}NFe")
     if nfe is None:
@@ -380,13 +391,24 @@ def _omie_fetch_periodo(d_ini_str: str, d_fim_str: str) -> list[dict]:
     def _parse(resp: dict) -> list[dict]:
         out = []
         for doc in resp.get('documentosEncontrados', []):
-            if doc.get('cStatus') == '40':
+            # Situacoes que compoem o valor faturado no Painel de NF-e da Omie.
+            if str(doc.get('cStatus', '')) not in {'00', '30'}:
                 continue
             xml = doc.get('cXml', '')
             pid = doc.get('nIdPedido', 0)
             chave = doc.get('nChave', '')
             if xml:
-                for item in _parsear_xml_nfe(xml):
+                # CFOP 5901 identifica a operacao de remessa (opPedido 14).
+                # Exclui a NF inteira para nao aproveitar itens 5910 da mesma nota.
+                _xml_decodificado = html_mod.unescape(xml)
+                if '<CFOP>5901</CFOP>' in _xml_decodificado:
+                    continue
+                _itens = _parsear_xml_nfe(xml)
+                _soma_itens = sum(float(i.get('Vlr Líquido', 0) or 0) for i in _itens)
+                _valor_nf = float(doc.get('nValor', 0) or 0)
+                _fator = (_valor_nf / _soma_itens) if _soma_itens and _valor_nf else 1.0
+                for item in _itens:
+                    item['Vlr Líquido'] = float(item.get('Vlr Líquido', 0) or 0) * _fator
                     item['nIdPedido'] = pid
                     item['nChave']    = chave
                     out.append(item)
@@ -519,7 +541,8 @@ def _ler_vendas_com_cache(data_ini: str, data_fim: str, force_refresh: bool = Fa
     d_fim = datetime.strptime(data_fim, _DT_FMT)
 
     _cache_dir  = _CACHE_DIR
-    _cache_path = os.path.join(_cache_dir, 'vendas_v7.json')  # v7: +CFOP 6910/5910 (brindes) + vICMSDeson (ZFM)
+    # v8: XML reparado, somente faturadas e valor oficial da NF rateado nos itens.
+    _cache_path = os.path.join(_cache_dir, 'vendas_v8.json')
 
     all_cached: list[dict] = []
     cache_earliest: datetime | None = None
@@ -3167,4 +3190,3 @@ def main(
 
 if __name__ == "__main__":
     main()
-
